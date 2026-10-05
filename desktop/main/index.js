@@ -1,0 +1,516 @@
+'use strict';
+/**
+ * ds_pet —— 应用入口（基于 PC2005-cloud/dsh-pet 二次创作）。
+ *
+ * 一个进程管全部：桌宠窗口、菜单栏图标、聊天面板、设置窗口、DeepSeek 调用、数据存储。
+ * 关掉所有窗口不会退出（她还在桌面上）；退出只有 ⌘Q / 菜单「退出」。
+ */
+const {
+  app,
+  Tray,
+  Menu,
+  nativeImage,
+  ipcMain,
+  globalShortcut,
+  dialog,
+  shell,
+} = require('electron');
+const path = require('node:path');
+
+const APP_NAME = 'ds_pet';
+app.setName(APP_NAME);
+// 数据目录：~/Library/Application Support/ds_pet（DS_PET_DATA_DIR 可指定别处，开发/演示用）
+app.setPath('userData', process.env.DS_PET_DATA_DIR || path.join(app.getPath('appData'), APP_NAME));
+// 动画需要无手势自动播放
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+const service = require('./service');
+service.registerScheme();
+
+const {
+  store,
+  petConfig,
+  dataDir,
+  SIZE_PRESETS,
+  WHISPER_INTERVALS,
+  LANGUAGES,
+  SIZE_MIN,
+  SIZE_MAX,
+  defaultPersona,
+} = require('./store');
+const llm = require('./llm');
+const menus = require('./menus');
+const petWindow = require('./pet-window');
+const chatWindow = require('./chat-window');
+const settingsWindow = require('./settings-window');
+const { migrate } = require('./migrate');
+
+const RES = path.join(__dirname, '..', 'resources');
+
+let tray = null;
+let greeted = false;
+const LINKS = {
+  apiKeys: 'https://platform.deepseek.com/api_keys',
+  usage: 'https://platform.deepseek.com/usage',
+  upstream: 'https://github.com/PC2005-cloud/dsh-pet',
+  repo: 'https://github.com/cjian1/ds_pet',
+};
+const t = (key, vars) => store.t(key, vars);
+
+// ---------------------------------------------------------------- 动作
+function ctx() {
+  const s = store.get();
+  return {
+    settings: s,
+    lang: store.lang(),
+    t,
+    name: store.petName(),
+    hasKey: store.hasApiKey(),
+    visible: s.app.visible,
+    animations: petConfig(s).main.animations,
+    openChat,
+    whisper: () => petAction({ type: 'whisper' }),
+    balance: () => petAction({ type: 'balance' }),
+    play: (anim) => petAction({ type: 'play', anim }),
+    home,
+    pickImage,
+    setSize: (size) => store.update({ pet: { size } }),
+    toggleRoam: () => store.update({ pet: { roam: !store.get().pet.roam } }),
+    toggleWhisper: () => store.update({ talk: { whisperEnabled: !store.get().talk.whisperEnabled } }),
+    toggleLogin: () => applyLoginItem(!store.get().app.openAtLogin),
+    setVisible,
+    openSettings: (tab) => settingsWindow.open(tab),
+    about,
+    quit: () => app.quit(),
+  };
+}
+
+function petAction(action) {
+  if (!store.get().app.visible) setVisible(true);
+  petWindow.send('pet:action', action);
+}
+
+function home() {
+  store.update({ position: null });
+  petAction({ type: 'home' });
+}
+
+function setVisible(visible) {
+  store.update({ app: { visible: !!visible } });
+  if (visible) petWindow.show();
+  else {
+    petWindow.hide();
+    chatWindow.hide();
+  }
+}
+
+function openChat(opts = {}) {
+  chatWindow.show();
+  if (opts.image) chatWindow.send('chat:attach', { image: opts.image, autoSend: true });
+}
+
+async function pickImage() {
+  app.focus({ steal: true });
+  const res = await dialog.showOpenDialog({
+    title: t('pick.title'),
+    buttonLabel: t('pick.button'),
+    properties: ['openFile'],
+    filters: [{ name: t('pick.filter'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'bmp', 'tiff'] }],
+  });
+  if (res.canceled || !res.filePaths[0]) return;
+  const img = nativeImage.createFromPath(res.filePaths[0]);
+  if (img.isEmpty()) {
+    petAction({ type: 'say', text: t('pet.cantOpenImage') });
+    return;
+  }
+  openChat({ image: img.toDataURL() });
+}
+
+function about() {
+  app.focus({ steal: true });
+  app.showAboutPanel();
+}
+
+function applyAboutPanel() {
+  app.setAboutPanelOptions({
+    applicationName: APP_NAME,
+    applicationVersion: app.getVersion(),
+    version: 'Electron ' + process.versions.electron,
+    copyright: t('about.copyright'),
+    credits: t('about.credits'),
+    iconPath: path.join(RES, 'icon.png'),
+  });
+}
+
+// ---------------------------------------------------------------- 系统集成
+function applyDock() {
+  if (!app.dock) return;
+  if (store.get().app.showInDock || settingsWindow.isOpen()) app.dock.show();
+  else app.dock.hide();
+}
+
+function registerShortcut() {
+  globalShortcut.unregisterAll();
+  const a = store.get().app;
+  if (!a.shortcutEnabled) return true;
+  try {
+    return globalShortcut.register(a.shortcut, () => setVisible(!store.get().app.visible));
+  } catch {
+    return false;
+  }
+}
+
+function loginStatus() {
+  if (!app.isPackaged) return 'dev';
+  try {
+    const st = app.getLoginItemSettings();
+    return st.status || (st.openAtLogin ? 'enabled' : 'not-registered');
+  } catch {
+    return 'unknown';
+  }
+}
+
+function applyLoginItem(on) {
+  if (app.isPackaged) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: !!on });
+    } catch (e) {
+      console.error('[login-item]', e);
+    }
+  }
+  store.update({ app: { openAtLogin: !!on } });
+  return loginStatus();
+}
+
+function refreshTray() {
+  if (!tray) return;
+  const s = store.get();
+  tray.setToolTip(APP_NAME + (s.app.visible ? '' : t('tray.hidden')) + (store.hasApiKey() ? '' : t('tray.noKeyTip')));
+}
+
+function createTray() {
+  const icon = nativeImage.createFromPath(path.join(RES, 'trayTemplate.png'));
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
+  const pop = () => tray.popUpContextMenu(menus.trayMenu(ctx()));
+  tray.on('click', pop);
+  tray.on('right-click', pop);
+  refreshTray();
+}
+
+// ---------------------------------------------------------------- 她的招呼
+function greetingLine() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return t('greet.morning');
+  if (h >= 11 && h < 14) return t('greet.noon');
+  if (h >= 14 && h < 18) return t('greet.afternoon');
+  if (h >= 18 && h < 23) return t('greet.evening');
+  return t('greet.night');
+}
+
+function onPetReady() {
+  if (greeted) return;
+  greeted = true;
+  const s = store.get();
+  if (!s.onboarded) {
+    store.update({ onboarded: true });
+    setTimeout(() => {
+      petWindow.send('pet:action', {
+        type: 'say',
+        text: t('onboard.hello', { name: store.petName() }),
+        image: 'Ciallo',
+      });
+    }, 1200);
+    // 还没有 API Key：她先提醒一句，再把设置窗口打开到「AI 对话」页，照着填就行
+    if (!store.hasApiKey()) {
+      setTimeout(() => {
+        petWindow.send('pet:action', { type: 'say', text: t('onboard.needKey') });
+        settingsWindow.open('ai');
+      }, 6000);
+    }
+    return;
+  }
+  setTimeout(() => petWindow.send('pet:action', { type: 'say', text: greetingLine() }), 1500);
+}
+
+// ---------------------------------------------------------------- 聊天
+function chatState() {
+  const s = store.get();
+  return {
+    name: store.petName(),
+    lang: store.lang(),
+    hasKey: store.hasApiKey(),
+    model: s.ai.model,
+    api: service.API,
+    history: llm
+      .history('main')
+      .slice(-80)
+      .map((m) => ({ role: m.role, content: String(m.content || ''), image: m.image || null, ts: m.ts || 0 })),
+  };
+}
+
+let chatAbort = null;
+
+function setupChatIpc() {
+  ipcMain.handle('chat:init', () => chatState());
+
+  ipcMain.handle('chat:send', async (event, payload) => {
+    const { id, text, image } = payload || {};
+    const sender = event.sender;
+    const emit = (msg) => {
+      if (!sender.isDestroyed()) sender.send('chat:stream', Object.assign({ id }, msg));
+    };
+    if (chatAbort) chatAbort.abort();
+    const ac = new AbortController();
+    chatAbort = ac;
+    const cfg = petConfig();
+    const pet = service.mainPet(cfg);
+    let started = false;
+    try {
+      const res = await llm.chat(cfg.main, pet, { text, image }, {
+        signal: ac.signal,
+        onThinking: () => emit({ type: 'thinking' }),
+        onDelta: (piece) => {
+          if (!started) {
+            started = true;
+            petWindow.send('pet:action', { type: 'talk' });
+          }
+          emit({ type: 'delta', text: piece });
+        },
+      });
+      // 面板没开着（比如主人把它关了）：让她把回复说出来
+      if (!chatWindow.isVisible()) petWindow.send('pet:action', { type: 'say', text: res.reply, image: res.image });
+      return { ok: true, reply: res.reply, image: res.image, userImage: res.userImage };
+    } catch (e) {
+      return { ok: false, reason: e.reason || 'error', message: e.message || String(e) };
+    } finally {
+      if (chatAbort === ac) chatAbort = null;
+    }
+  });
+
+  ipcMain.on('chat:stop', () => {
+    if (chatAbort) chatAbort.abort();
+  });
+  ipcMain.handle('chat:clear', () => {
+    llm.clearHistory('main');
+    return chatState();
+  });
+  ipcMain.on('chat:close', () => chatWindow.hide());
+  ipcMain.on('chat:open-settings', (_e, tab) => settingsWindow.open(tab || 'ai'));
+}
+
+// ---------------------------------------------------------------- 设置
+function keyHint(key) {
+  if (!key) return '';
+  return key.length > 10 ? key.slice(0, 5) + '••••' + key.slice(-4) : '••••';
+}
+
+function settingsView() {
+  const s = store.get();
+  return {
+    settings: Object.assign({}, s, { ai: Object.assign({}, s.ai, { apiKey: undefined }) }),
+    hasKey: store.hasApiKey(),
+    keyHint: keyHint(store.apiKey()),
+    keyFromEnv: !!process.env.DEEPSEEK_API_KEY,
+    api: service.API,
+    lang: store.lang(),
+    petName: store.petName(),
+    defaultName: t('pet.defaultName'),
+    meta: {
+      version: app.getVersion(),
+      electron: process.versions.electron,
+      sizePresets: SIZE_PRESETS.map((p) => ({ size: p.size, label: t(p.key) })),
+      intervals: WHISPER_INTERVALS.map((sec) => ({ sec, label: t('interval.' + sec) })),
+      languages: LANGUAGES,
+      sizeMin: SIZE_MIN,
+      sizeMax: SIZE_MAX,
+      defaultPersona: defaultPersona(),
+      dataDir: dataDir(),
+      packaged: app.isPackaged,
+      loginStatus: loginStatus(),
+      shortcutOk: shortcutOk,
+    },
+  };
+}
+
+let shortcutOk = true;
+
+function setupSettingsIpc() {
+  ipcMain.handle('settings:get', () => settingsView());
+
+  ipcMain.handle('settings:set', (_e, patch) => {
+    const p = patch && typeof patch === 'object' ? JSON.parse(JSON.stringify(patch)) : {};
+    if (p.app && typeof p.app.openAtLogin === 'boolean') {
+      applyLoginItem(p.app.openAtLogin);
+      delete p.app.openAtLogin;
+    }
+    if (p.app && p.app.visible !== undefined) {
+      setVisible(!!p.app.visible);
+      delete p.app.visible;
+    }
+    store.update(p);
+    return settingsView();
+  });
+
+  ipcMain.handle('settings:test-key', async (_e, key) => {
+    const k = String(key || '').trim() || store.apiKey();
+    if (!k) return { ok: false, message: t('err.enterKey') };
+    try {
+      const r = await llm.testKey(k);
+      return {
+        ok: true,
+        models: r.models.map((m) => m.id),
+        balance: r.balance,
+      };
+    } catch (e) {
+      return { ok: false, message: e.message };
+    }
+  });
+
+  ipcMain.handle('settings:models', async () => {
+    try {
+      const list = await llm.listModels();
+      return {
+        ok: true,
+        models: list.map((m) => ({
+          id: m.id,
+          name: m.name || m.id,
+          vision: Array.isArray(m.input_modalities) && m.input_modalities.includes('image'),
+          efforts: (m.effort && m.effort.supported_levels) || [],
+          context: m.context_window || 0,
+        })),
+      };
+    } catch (e) {
+      return { ok: false, message: e.message, models: [] };
+    }
+  });
+
+  ipcMain.handle('settings:balance', async () => llm.balance({ force: true }));
+  ipcMain.handle('settings:clear-history', () => {
+    llm.clearHistory('main');
+    chatWindow.send('chat:refresh', chatState());
+    return true;
+  });
+  ipcMain.on('settings:open-data', () => shell.openPath(dataDir()));
+  ipcMain.on('settings:open-link', (_e, key) => {
+    if (LINKS[key]) shell.openExternal(LINKS[key]);
+  });
+  ipcMain.on('settings:home', () => home());
+  ipcMain.on('settings:say', () => ctx().whisper());
+}
+
+// ---------------------------------------------------------------- 设置变化 → 生效
+function onSettingsChange(next, prev) {
+  const changed = (k) => JSON.stringify(next[k]) !== JSON.stringify(prev[k]);
+  const keyChanged = next.ai.apiKey !== prev.ai.apiKey;
+  if (keyChanged) llm.resetCaches();
+  const langChanged = next.app.language !== prev.app.language;
+  // 影响桌宠本身的设置：重建窗口（新窗口就绪后才替换旧窗口，几乎无闪烁）
+  if (
+    (changed('pet') || changed('talk') || langChanged || !!next.ai.apiKey !== !!prev.ai.apiKey) &&
+    next.app.visible &&
+    petWindow.window()
+  ) {
+    petWindow.recreate();
+  }
+  // 换语言：菜单、关于面板、聊天和设置窗口都换成新语言
+  if (langChanged) {
+    Menu.setApplicationMenu(menus.appMenu(ctx()));
+    applyAboutPanel();
+    chatWindow.reload();
+    settingsWindow.reload('general');
+  }
+  if (next.app.overFullscreen !== prev.app.overFullscreen) petWindow.setOverFullscreen(next.app.overFullscreen);
+  if (next.app.shortcut !== prev.app.shortcut || next.app.shortcutEnabled !== prev.app.shortcutEnabled) {
+    shortcutOk = registerShortcut();
+  }
+  if (next.app.showInDock !== prev.app.showInDock) applyDock();
+  if (!langChanged && (next.pet.name !== prev.pet.name || keyChanged || next.ai.model !== prev.ai.model)) {
+    chatWindow.send('chat:refresh', chatState());
+  }
+  const onlyPosition = changed('position') && !['pet', 'talk', 'ai', 'app', 'onboarded'].some(changed);
+  if (!onlyPosition) settingsWindow.send('settings:changed', settingsView());
+  refreshTray();
+}
+
+// ---------------------------------------------------------------- 启动
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    setVisible(true);
+    settingsWindow.open();
+  });
+
+  // 点程序坞图标 / 再次打开应用：她藏起来了就叫出来，并打开设置
+  app.on('activate', () => {
+    if (!store.get().app.visible) setVisible(true);
+    settingsWindow.open();
+  });
+
+  app.on('window-all-closed', () => {
+    /* 菜单栏应用：窗口都关了也继续在桌面上 */
+  });
+
+  app.on('before-quit', () => {
+    chatWindow.setQuitting();
+    settingsWindow.setQuitting();
+  });
+
+  app.on('will-quit', () => globalShortcut.unregisterAll());
+
+  app.whenReady().then(() => {
+    service.installHandler();
+    store.load();
+    if (store.firstRun) {
+      try {
+        migrate();
+      } catch (e) {
+        console.error('[migrate] 失败', e);
+      }
+      store.save();
+    }
+    store.on('change', onSettingsChange);
+
+    applyAboutPanel();
+    if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(RES, 'icon.png'));
+
+    Menu.setApplicationMenu(menus.appMenu(ctx()));
+    applyDock();
+    createTray();
+    setupChatIpc();
+    setupSettingsIpc();
+
+    petWindow.init({
+      onContextMenu: (win) => {
+        menus.petMenu(ctx()).popup({ window: win, callback: () => petWindow.send('pet:menu-closed') });
+      },
+      onOpenChat: (payload) => openChat(payload),
+      onMoved: () => chatWindow.follow(),
+      onReady: onPetReady,
+    });
+    chatWindow.setBodyRectProvider(petWindow.bodyRect);
+    settingsWindow.init({
+      onShow: () => {
+        if (app.dock) app.dock.show();
+        app.focus({ steal: true });
+      },
+      onClose: applyDock,
+    });
+
+    if (store.get().app.visible) petWindow.create();
+    shortcutOk = registerShortcut();
+    // 开发态调试把手（node --inspect 连上主进程后可直接调用）
+    if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat };
+
+    // 登录项与设置对齐（用户可能在系统设置里手动关过）
+    if (app.isPackaged) {
+      try {
+        const st = app.getLoginItemSettings();
+        if (store.get().app.openAtLogin && !st.openAtLogin) app.setLoginItemSettings({ openAtLogin: true });
+      } catch {
+        /* 忽略 */
+      }
+    }
+  });
+}

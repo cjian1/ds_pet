@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' deskpet:; script-src 'self' deskpet:; style-src 'self' deskpet: 'unsafe-inline'; img-src 'self' deskpet: data: blob:; media-src 'self' deskpet: blob:; font-src 'self' deskpet: data:"
+    />
+    <title>桌宠</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      /* 她：绝对定位在窗口内，由 sprite.js 按位置与偏移计算 left/top */
+      .pet-sprite {
+        position: absolute;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+      }
+      .pet-stage {
+        position: relative;
+        width: var(--pet-size, 462px);
+        height: calc(var(--pet-size, 462px) * 9 / 16);
+        pointer-events: none;
+        transition: filter 0.2s ease;
+      }
+      /* 拖着图片经过她：身上亮一圈，告诉主人「可以松手啦」 */
+      .pet-sprite.is-drop-target .pet-stage {
+        filter: drop-shadow(0 0 10px rgba(96, 165, 255, 0.95)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.9));
+      }
+      video.pet-video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+      video.pet-video.is-front {
+        opacity: 1;
+      }
+      .pet-hit {
+        position: absolute;
+        pointer-events: auto;
+        cursor: grab;
+        z-index: 1;
+      }
+      .pet-hit.dragging {
+        cursor: grabbing;
+      }
+
+      /* ---- 对话气泡：白色圆润泡 + 柔和投影 + 小尾巴，尺寸随她的大小等比缩放 ---- */
+      .pet-bubble {
+        --s: var(--pet-size, 462px);
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% - var(--s) * 0.108);
+        /* 按内容自适应宽度：绝对定位 + left:50% 时可用宽度只剩半个容器，不显式指定会被挤得过早换行 */
+        width: max-content;
+        min-width: calc(var(--s) * 0.26);
+        max-width: calc(var(--s) * 0.56);
+        padding: calc(var(--s) * 0.022) calc(var(--s) * 0.034);
+        border-radius: calc(var(--s) * 0.042);
+        background: rgba(255, 255, 255, 0.97);
+        border: 1px solid rgba(40, 70, 140, 0.08);
+        color: #283049;
+        font-family:
+          'ShangshouSoftCandy', 'Yuanti SC', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+        font-size: calc(var(--s) * 0.044);
+        line-height: 1.55;
+        text-align: center;
+        z-index: 3;
+        pointer-events: none;
+        box-shadow:
+          0 calc(var(--s) * 0.014) calc(var(--s) * 0.05) rgba(32, 56, 120, 0.2),
+          0 1px 3px rgba(0, 0, 0, 0.08);
+        opacity: 0;
+        transform: translateX(-50%) translateY(6px) scale(0.92);
+        transform-origin: 50% 100%;
+        transition:
+          opacity 0.22s ease,
+          transform 0.32s cubic-bezier(0.2, 1.4, 0.4, 1);
+        white-space: nowrap;
+      }
+      /* 英文：上首软糖体的拉丁字母又宽又挤，换成系统圆体 */
+      html[lang='en'] .pet-bubble {
+        font-family: ui-rounded, 'SF Pro Rounded', -apple-system, sans-serif;
+        font-weight: 600;
+      }
+      .pet-bubble::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        bottom: calc(var(--s) * -0.016);
+        width: calc(var(--s) * 0.034);
+        height: calc(var(--s) * 0.034);
+        background: rgba(255, 255, 255, 0.97);
+        border-right: 1px solid rgba(40, 70, 140, 0.08);
+        border-bottom: 1px solid rgba(40, 70, 140, 0.08);
+        border-bottom-right-radius: calc(var(--s) * 0.008);
+        transform: translateX(-50%) rotate(45deg);
+      }
+      .pet-bubble.is-on {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1);
+      }
+      /* 她贴着屏幕顶时：气泡挪到脚下，尾巴朝上 */
+      .pet-bubble.is-below {
+        bottom: auto;
+        top: calc(var(--s) * 0.58);
+        transform-origin: 50% 0;
+      }
+      .pet-bubble.is-below::after {
+        bottom: auto;
+        top: calc(var(--s) * -0.016);
+        transform: translateX(-50%) rotate(225deg);
+      }
+      /* 碎碎念 / 说话：允许换行，宽度随字数自适应 */
+      .pet-bubble.is-whisper {
+        font-size: calc(var(--s) * 0.036);
+        min-width: calc(var(--s) * 0.12);
+        white-space: normal;
+        overflow-wrap: anywhere;
+        text-align: left;
+      }
+      .pet-bub-row {
+        display: flex;
+        justify-content: center;
+        gap: calc(var(--s) * 0.02);
+      }
+      .pet-bubble.is-whisper .pet-bub-row {
+        display: block;
+      }
+      .pet-bub-sub {
+        font-size: calc(var(--s) * 0.032);
+        color: rgba(40, 48, 73, 0.6);
+      }
+      .pet-bub-err {
+        color: #d0543f;
+        font-size: calc(var(--s) * 0.034);
+      }
+      .pet-bub-tier {
+        font-weight: 700;
+      }
+      .pet-bub-tier-peak {
+        color: #e5484d;
+      }
+      .pet-bub-tier-idle {
+        color: #2f9e61;
+      }
+      /* 配图（表情包） */
+      .pet-bub-img {
+        display: block;
+        width: calc(var(--s) * 0.3);
+        height: auto;
+        border-radius: calc(var(--s) * 0.026);
+        margin: 0 auto calc(var(--s) * 0.016);
+        object-fit: cover;
+      }
+
+      /* 加载失败提示（每 5s 自动重试） */
+      .pet-error {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        max-width: 80vw;
+        background: rgba(30, 34, 48, 0.86);
+        color: #fff;
+        border-radius: 12px;
+        padding: 8px 14px;
+        font-size: 12px;
+        line-height: 1.5;
+        display: none;
+        z-index: 999;
+        pointer-events: none;
+        word-break: break-all;
+        backdrop-filter: blur(8px);
+      }
+      .pet-error.visible {
+        display: block;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        video.pet-video,
+        .pet-bubble {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="pet-error" class="pet-error"></div>
+    <!-- 双语文案 → 共享纯逻辑（dsh-pet src/shared 的构建产物，window.PetShared）→ 常量 → 本体 → 事件 → 启动 -->
+    <script src="../i18n/i18n.js"></script>
+    <script src="./shared-core.js"></script>
+    <script src="./constants.js"></script>
+    <script src="./sprite.js"></script>
+    <script src="./events.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

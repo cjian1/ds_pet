@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' deskpet:; script-src 'self' deskpet:; style-src 'self' deskpet: 'unsafe-inline'; img-src 'self' deskpet: data: blob:; font-src 'self' deskpet: data:; media-src 'self' deskpet:"
+    />
+    <title>Chat</title>
+    <link rel="stylesheet" href="./chat.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="who">
+        <div class="avatar"><img id="avatar" alt="" draggable="false" /><i class="dot"></i></div>
+        <div class="meta">
+          <div class="name" id="name"></div>
+          <div class="status" id="status"></div>
+        </div>
+      </div>
+      <div class="tools">
+        <button class="icon" id="btn-clear" data-i18n-title="chat.clear">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+        </button>
+        <button class="icon" id="btn-close" data-i18n-title="chat.close">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="scroll">
+      <div id="nokey" class="nokey" hidden>
+        <div class="nokey-title" data-i18n="chat.noKeyTitle"></div>
+        <div class="nokey-text" data-i18n="chat.noKeyText"></div>
+        <button class="primary" id="btn-settings" data-i18n="chat.openSettings"></button>
+      </div>
+      <div id="empty" class="empty" hidden>
+        <img id="empty-img" alt="" draggable="false" />
+        <div class="empty-title" id="empty-title"></div>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div id="list" class="list"></div>
+    </main>
+
+    <footer class="composer" id="composer">
+      <div class="attach-preview" id="attach-preview" hidden>
+        <img id="attach-img" alt="" />
+        <button class="attach-remove" id="attach-remove" data-i18n-title="chat.removeImage">
+          <svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17" /></svg>
+        </button>
+      </div>
+      <div class="row">
+        <button class="icon" id="btn-attach" data-i18n-title="chat.attach">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3" /><circle cx="9" cy="10" r="1.6" /><path d="M21 16l-5-5-7 8" /></svg>
+        </button>
+        <textarea id="input" rows="1" data-i18n-title="chat.inputHint"></textarea>
+        <button class="send" id="btn-send" data-i18n-title="chat.send">
+          <svg class="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+          <svg class="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>
+        </button>
+      </div>
+      <input type="file" id="file" accept="image/*" hidden />
+    </footer>
+    <div class="dropzone" id="dropzone"><div data-i18n="chat.drop"></div></div>
+    <script src="../i18n/i18n.js"></script>
+    <script src="./chat.js"></script>
+  </body>
+</html>

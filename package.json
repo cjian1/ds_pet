@@ -1,0 +1,25 @@
+{
+  "name": "ds_pet",
+  "private": true,
+  "description": "ds_pet: a desktop pet for macOS — a remix of PC2005-cloud/dsh-pet. 住在 macOS 桌面上的蓝毛小女仆（基于 dsh-pet 二次创作）",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron desktop",
+    "dev": "electron desktop --inspect=9334 --remote-debugging-port=9333",
+    "dist": "bash scripts/build-mac.sh --dmg",
+    "dist:all": "bash scripts/build-mac.sh --dmg --arch arm64 && bash scripts/build-mac.sh --dmg --arch x64",
+    "install-app": "bash scripts/build-mac.sh --install",
+    "icons": "electron scripts/make-icons.js",
+    "check": "for f in desktop/main/*.js desktop/pet/*.js desktop/chat/*.js desktop/settings/*.js desktop/i18n/*.js; do node --check \"$f\" || exit 1; done"
+  },
+  "devDependencies": {
+    "electron": "43.7.7"
+  },
+  "allowScripts": {
+    "electron": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cjian1/ds_pet.git"
+  }
+}

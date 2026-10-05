@@ -1,0 +1,39 @@
+# 打 tag（如 v1.0.0）推上来，自动打包 Apple 芯片版 + Intel 版并发布到 Releases。
+# 也可以在 Actions 页面手动运行（只打包，产物在本次运行的 Artifacts 里）。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 打包（Apple 芯片）
+        run: bash scripts/build-mac.sh --dmg --arch arm64
+
+      - name: 打包（Intel）
+        run: bash scripts/build-mac.sh --dmg --arch x64
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds_pet-dmg
+          path: dist/*.dmg
+
+      - name: 发布到 Releases
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.dmg \
+            --title "ds_pet $GITHUB_REF_NAME" \
+            --notes-file .github/release-notes.md \
+          || gh release upload "$GITHUB_REF_NAME" dist/*.dmg --clobber

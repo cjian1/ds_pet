@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' deskpet:; script-src 'self' deskpet:; style-src 'self' deskpet: 'unsafe-inline'; img-src 'self' deskpet: data:; media-src 'self' deskpet:; font-src 'self' deskpet: data:"
+    />
+    <title>ds_pet</title>
+    <link rel="stylesheet" href="./settings.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="deskpet://app/resources/icon.png" alt="" draggable="false" />
+        <div>
+          <div class="brand-name">ds_pet</div>
+          <div class="brand-sub" data-i18n="app.tagline"></div>
+        </div>
+      </div>
+      <nav>
+        <a data-tab="pet" class="on">
+          <svg viewBox="0 0 24 24"><path d="M12 21c-4.4 0-8-2.7-8-6 0-2.5 2-4.6 4.9-5.5M12 21c4.4 0 8-2.7 8-6 0-2.5-2-4.6-4.9-5.5" /><circle cx="12" cy="7" r="4" /><path d="M10.5 6.5h.01M13.5 6.5h.01" /></svg>
+          <span data-i18n="set.nav.pet"></span>
+        </a>
+        <a data-tab="ai">
+          <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /><path d="M8.5 11h.01M12 11h.01M15.5 11h.01" /></svg>
+          <span data-i18n="set.nav.ai"></span>
+        </a>
+        <a data-tab="general">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+          <span data-i18n="set.nav.general"></span>
+        </a>
+        <a data-tab="about">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 16v-4M12 8h.01" /></svg>
+          <span data-i18n="set.nav.about"></span>
+        </a>
+      </nav>
+    </aside>
+
+    <main id="content">
+      <!-- ============================================================ 桌宠 -->
+      <section data-page="pet" class="page on">
+        <h1 data-i18n="set.nav.pet"></h1>
+        <div class="hero">
+          <div class="hero-stage"><video id="preview" muted loop autoplay playsinline></video></div>
+          <div class="hero-body">
+            <label class="field-label" for="pet-name" data-i18n="set.pet.name"></label>
+            <input id="pet-name" class="text" maxlength="24" />
+            <div class="hero-actions">
+              <button class="btn" id="btn-say" data-i18n="set.pet.say"></button>
+              <button class="btn" id="btn-home" data-i18n="set.pet.home"></button>
+            </div>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.look"></h2>
+        <div class="group">
+          <div class="row col">
+            <div class="row-head">
+              <div><div class="label" data-i18n="set.size"></div><div class="hint" data-i18n="set.sizeHint"></div></div>
+              <div class="value" id="size-value"></div>
+            </div>
+            <div class="presets" id="size-presets"></div>
+            <input type="range" id="size" min="160" max="900" step="10" />
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.corner"></div><div class="hint" data-i18n="set.cornerHint"></div></div>
+            <select id="corner">
+              <option value="bottom-right" data-i18n="set.corner.br"></option>
+              <option value="bottom-left" data-i18n="set.corner.bl"></option>
+              <option value="top-right" data-i18n="set.corner.tr"></option>
+              <option value="top-left" data-i18n="set.corner.tl"></option>
+            </select>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.behavior"></h2>
+        <div class="group">
+          <div class="row">
+            <div><div class="label" data-i18n="set.roam"></div><div class="hint" data-i18n="set.roamHint"></div></div>
+            <label class="switch"><input type="checkbox" id="roam" /><i></i></label>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.live"></div><div class="hint" data-i18n="set.liveHint"></div></div>
+            <div class="seg" id="liveliness">
+              <button data-v="calm" data-i18n="set.live.calm"></button><button data-v="normal" data-i18n="set.live.normal"></button><button data-v="lively" data-i18n="set.live.lively"></button>
+            </div>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.throw"></div><div class="hint" data-i18n="set.throwHint"></div></div>
+            <input type="range" id="throw" min="0.3" max="2" step="0.1" class="short" />
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.confine"></div><div class="hint" data-i18n="set.confineHint"></div></div>
+            <label class="switch"><input type="checkbox" id="confine" /><i></i></label>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.talk"></h2>
+        <div class="group">
+          <div class="row">
+            <div><div class="label" data-i18n="set.whisper"></div><div class="hint" id="whisper-hint"></div></div>
+            <label class="switch"><input type="checkbox" id="whisper" /><i></i></label>
+          </div>
+          <div class="row">
+            <div class="label" data-i18n="set.interval"></div>
+            <select id="whisper-interval"></select>
+          </div>
+          <div class="row">
+            <div class="label" data-i18n="set.whisperImage"></div>
+            <label class="switch"><input type="checkbox" id="whisper-image" /><i></i></label>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.balance"></div><div class="hint" data-i18n="set.balanceHint"></div></div>
+            <label class="switch"><input type="checkbox" id="balance" /><i></i></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ AI -->
+      <section data-page="ai" class="page">
+        <h1 data-i18n="set.nav.ai"></h1>
+        <div class="group">
+          <div class="row col">
+            <div class="row-head">
+              <div>
+                <div class="label" data-i18n="set.key"></div>
+                <div class="hint" id="key-status"></div>
+              </div>
+              <span class="pill" id="key-pill"></span>
+            </div>
+            <div class="key-row">
+              <input id="api-key" class="text mono" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+              <button class="btn" id="btn-test" data-i18n="set.test"></button>
+              <button class="btn primary" id="btn-save-key" data-i18n="set.save"></button>
+            </div>
+            <div class="key-foot">
+              <a href="#" id="link-keys" data-i18n="set.getKey"></a>
+              <span id="key-result" class="result"></span>
+            </div>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.model"></h2>
+        <div class="group">
+          <div class="row col">
+            <div class="models" id="models"></div>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.effort"></div><div class="hint" id="effort-hint" data-i18n="set.effortHint.low"></div></div>
+            <div class="seg" id="effort">
+              <button data-v="low" data-i18n="set.effort.low"></button><button data-v="high" data-i18n="set.effort.high"></button><button data-v="max" data-i18n="set.effort.max"></button>
+            </div>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.chat"></h2>
+        <div class="group">
+          <div class="row">
+            <div><div class="label" data-i18n="set.memory"></div><div class="hint" data-i18n="set.memoryHint"></div></div>
+            <div class="stepper"><button id="mem-minus">−</button><span id="mem-value"></span><button id="mem-plus">＋</button></div>
+          </div>
+          <div class="row">
+            <div class="label" data-i18n="set.chatImage"></div>
+            <label class="switch"><input type="checkbox" id="chat-image" /><i></i></label>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.history"></div><div class="hint" data-i18n="set.historyHint"></div></div>
+            <button class="btn danger" id="btn-clear" data-i18n="set.clearHistory"></button>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.persona"></h2>
+        <div class="group">
+          <div class="row col">
+            <div class="hint" data-i18n="set.personaHint"></div>
+            <textarea id="persona" class="text area" rows="5"></textarea>
+            <div class="right"><button class="btn" id="btn-persona-reset" data-i18n="set.personaReset"></button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ 通用 -->
+      <section data-page="general" class="page">
+        <h1 data-i18n="set.nav.general"></h1>
+        <div class="group">
+          <div class="row">
+            <div><div class="label" data-i18n="set.language"></div><div class="hint" data-i18n="set.languageHint"></div></div>
+            <select id="language">
+              <option value="auto" data-i18n="lang.auto"></option>
+              <option value="zh">简体中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.login"></div><div class="hint" id="login-hint"></div></div>
+            <label class="switch"><input type="checkbox" id="login" /><i></i></label>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.dock"></div><div class="hint" data-i18n="set.dockHint"></div></div>
+            <label class="switch"><input type="checkbox" id="dock" /><i></i></label>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.display"></h2>
+        <div class="group">
+          <div class="row">
+            <div class="label" data-i18n="set.visible"></div>
+            <label class="switch"><input type="checkbox" id="visible" /><i></i></label>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.fullscreen"></div><div class="hint" data-i18n="set.fullscreenHint"></div></div>
+            <label class="switch"><input type="checkbox" id="fullscreen" /><i></i></label>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.h.shortcut"></h2>
+        <div class="group">
+          <div class="row">
+            <div><div class="label" data-i18n="set.shortcut"></div><div class="hint" id="shortcut-hint"></div></div>
+            <div class="shortcut-wrap">
+              <button class="keycap" id="shortcut"></button>
+              <label class="switch"><input type="checkbox" id="shortcut-on" /><i></i></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ 关于 -->
+      <section data-page="about" class="page">
+        <div class="about">
+          <img src="deskpet://app/resources/icon.png" alt="" draggable="false" />
+          <div class="about-name">ds_pet</div>
+          <div class="hint" id="about-version"></div>
+          <p class="about-text" data-i18n="set.about.text"></p>
+          <div class="about-actions">
+            <button class="btn" id="btn-data" data-i18n="set.about.data"></button>
+            <button class="btn" id="btn-repo" data-i18n="set.about.repo"></button>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.about.creditTitle"></h2>
+        <div class="group credit">
+          <div class="row col">
+            <div class="credit-head">
+              <span class="credit-badge">dsh-pet</span>
+              <a href="#" id="link-upstream">github.com/PC2005-cloud/dsh-pet</a>
+            </div>
+            <div class="credit-text" data-i18n="set.about.credit"></div>
+            <div class="hint" data-i18n="set.about.disclaimer"></div>
+          </div>
+        </div>
+
+        <h2 data-i18n="set.tips"></h2>
+        <div class="group tips">
+          <div class="row"><span class="tip-k" data-i18n="set.tip.drag"></span><span data-i18n="set.tip.dragText"></span></div>
+          <div class="row"><span class="tip-k" data-i18n="set.tip.fling"></span><span data-i18n="set.tip.flingText"></span></div>
+          <div class="row"><span class="tip-k" data-i18n="set.tip.poke"></span><span data-i18n="set.tip.pokeText"></span></div>
+          <div class="row"><span class="tip-k" data-i18n="set.tip.right"></span><span data-i18n="set.tip.rightText"></span></div>
+          <div class="row"><span class="tip-k" data-i18n="set.tip.image"></span><span data-i18n="set.tip.imageText"></span></div>
+          <div class="row"><span class="tip-k" data-i18n="set.tip.tray"></span><span data-i18n="set.tip.trayText"></span></div>
+        </div>
+      </section>
+    </main>
+    <div class="toast" id="toast"></div>
+    <script src="../i18n/i18n.js"></script>
+    <script src="./settings.js"></script>
+  </body>
+</html>
