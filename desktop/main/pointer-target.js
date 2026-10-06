@@ -48,6 +48,55 @@ function spriteHitRect(bounds, offset) {
 
 /** 判定轮询间隔（ms，与 issue #55 报告者实测值一致） */
 const POINTER_POLL_MS = 60;
+/** 光标远离窗口时的兜底轮询间隔（ms）：快通道由渲染端转发的 mousemove 负责，兜底没必要一直高频 */
+const POINTER_POLL_FAR_MS = 250;
+/** 主人一段时间没碰键鼠时的兜底轮询间隔（ms）：没人会点她，兜底可以放得很慢 */
+const POINTER_POLL_IDLE_MS = 1000;
+/** 多久没输入算「主人不在」——用系统空闲时间，和碎碎念省略额度的判据一致（10 分钟）偏长，
+ *  这里 60s 就够：光标停着不动时，兜底通道晚一点不影响（真正进窗口的那一刻由转发通道负责） */
+const POINTER_IDLE_AFTER_SEC = 60;
+/** 「离窗口近」的外扩判定（px）：光标进到这个范围就切回快档 */
+const POINTER_NEAR_PAD = 48;
+
+/** 光标是不是在窗口附近（窗口矩形外扩 pad 像素内） */
+function isPointerNearWindow(bounds, point, pad = POINTER_NEAR_PAD) {
+  return (
+    point.x >= bounds.x - pad &&
+    point.x < bounds.x + bounds.width + pad &&
+    point.y >= bounds.y - pad &&
+    point.y < bounds.y + bounds.height + pad
+  );
+}
+
+/**
+ * 下一次兜底轮询该等多久（ms）。
+ *
+ * 正在拖拽 / 菜单开着 → 必须快档（60ms）；
+ * 主人一分钟没碰键鼠 → 最慢档（1000ms）：没人会点她；
+ * 光标在她身上 / 身边 → 快档；离得远 → 慢档（250ms）。
+ *
+ * 放慢的前提都是同一条：真正光标压到她身上的那一刻，渲染端转发的 mousemove 会立刻翻转可交互，
+ * 兜底只是转发链路失效时的退路，迟一点不改变行为。
+ */
+function pointerPollDelay(bounds, point, busy, idle) {
+  if (busy) return POINTER_POLL_MS;
+  if (idle) return POINTER_POLL_IDLE_MS;
+  return isPointerNearWindow(bounds, point) ? POINTER_POLL_MS : POINTER_POLL_FAR_MS;
+}
+
+/**
+ * 这一拍要不要提醒 focus-return 记一次「原来最前面的应用」（点完她把焦点还回去，见 focus-return.js）。
+ *
+ * 采样一次要起两个 lsappinfo 进程，所以只在真有用的时候采：
+ *   1) 光标刚进窗口 —— 先记一次，用户可能马上点下来（留提前量）；
+ *   2) 光标压在她身上 —— 随时可能点下去，交给 focus-return 自己按秒限频刷新。
+ * 只是停在她身边的透明余量里就**不采**：那里的点击会穿透给下面的应用，本应用不会被激活，
+ * 根本没有焦点要归还。曾经按整窗持续判定，光标停在余量里也会每秒起两个进程（实测主进程 ~1.8% 的一个核）。
+ */
+function shouldCaptureFocus({ onBody = false, inside = false, wasInside = false } = {}) {
+  if (onBody) return true;
+  return !!inside && !wasInside;
+}
 
 /**
  * 该不该让窗口穿透（= `setIgnoreMouseEvents` 的第一个参数）。
@@ -76,5 +125,18 @@ function decideWindowIgnore(bounds, point, busy, offset) {
 }
 
 module.exports = {
-  HIT_BOX, CANVAS_H, FEET_Y, STAGE_W, POINTER_POLL_MS, spriteHitRect, decideWindowIgnore,
+  HIT_BOX,
+  CANVAS_H,
+  FEET_Y,
+  STAGE_W,
+  POINTER_POLL_MS,
+  POINTER_POLL_FAR_MS,
+  POINTER_POLL_IDLE_MS,
+  POINTER_IDLE_AFTER_SEC,
+  POINTER_NEAR_PAD,
+  spriteHitRect,
+  decideWindowIgnore,
+  isPointerNearWindow,
+  pointerPollDelay,
+  shouldCaptureFocus,
 };

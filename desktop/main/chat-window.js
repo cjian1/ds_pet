@@ -121,8 +121,10 @@ function place() {
 }
 
 function send(channel, payload) {
-  const w = ensure();
-  if (ready) w.webContents.send(channel, payload);
+  // 面板没开着就什么都不发：绝不为了一条消息把隐藏的聊天渲染进程建出来（白占内存）。
+  // 打开面板走 show()，它自己会 ensure()，所以没有「先排队、以后再打开」的用法。
+  if (!win || win.isDestroyed()) return;
+  if (ready) win.webContents.send(channel, payload);
   else pending.push([channel, payload]);
 }
 

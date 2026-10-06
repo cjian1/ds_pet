@@ -3,10 +3,12 @@ require('./helpers/electron-stub');
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const { store, petConfig, settingsFile, memoryFile } = require('../desktop/main/store');
 const llm = require('../desktop/main/llm');
 
-const { openaiPayload, anthropicPayload, splitImageTag, url, errorFrom, postCompletion } = llm._internal;
+const { openaiPayload, anthropicPayload, splitImageTag, url, errorFrom, postCompletion, memePool, imageInstruction } =
+  llm._internal;
 
 // ---------------------------------------------------------------- 假网络
 let calls = [];
@@ -21,7 +23,7 @@ global.fetch = async (target, init = {}) => {
   calls.push(call);
   const reply = replies.shift();
   if (!reply) throw new Error('没预料到的请求：' + call.url);
-  return reply(call);
+  return reply(call, init);
 };
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
@@ -209,6 +211,64 @@ test('对话（OpenAI 兼容流式）：逐段吐字，结尾的 [图:…] 不�
   );
 });
 
+/**
+ * 流到一半还没结束的 SSE：先吐一段，然后挂着不收尾。
+ * fetch 的 signal 一中止，就像 undici 那样让正文读取报错（之前读到的字已经交出去了）。
+ */
+const hangingSse = (first, { signal, failWith } = {}) =>
+  new Response(
+    new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(first) + '\n\n'));
+        if (signal) signal.addEventListener('abort', () => c.error(signal.reason), { once: true });
+        if (failWith) setTimeout(() => c.error(failWith), 5);
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } },
+  );
+
+test('对话：流到一半主人点了停止 → aborted（不是「回复失败」），已吐出的字保留，不写进记录', async () => {
+  // 曾经的 bug：中途停止时 fetch 抛的是原始 AbortError，没有 reason，
+  // 面板就当成失败、显示英文报错和「重试」按钮。
+  provider('deepseek');
+  const cfg = petConfig().main;
+  const ac = new AbortController();
+  replies.push((_call, init) => hangingSse(oaDelta('说到一半'), { signal: init.signal }));
+  const pieces = [];
+  const err = await llm
+    .chat(cfg, cfg.pets[0], { text: '讲个长故事' }, {
+      signal: ac.signal,
+      onDelta: (p) => {
+        pieces.push(p);
+        ac.abort();
+      },
+    })
+    .catch((e) => e);
+  assert.ok(err instanceof llm.LlmError, '应归一成 LlmError：' + err);
+  assert.equal(err.reason, 'aborted');
+  assert.equal(pieces.join(''), '说到一半');
+  assert.deepEqual(llm.history('main'), [], '没说完的话不进记录');
+});
+
+test('对话：流到一半超时 → 给一句「请求超时」，不把英文原始报错甩给用户', async () => {
+  provider('deepseek');
+  const cfg = petConfig().main;
+  const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+  replies.push(() => hangingSse(oaDelta('说到'), { failWith: timeout }));
+  const err = await llm.chat(cfg, cfg.pets[0], { text: '在吗' }).catch((e) => e);
+  assert.equal(err.reason, 'network');
+  assert.equal(err.message, store.t('err.timeout'));
+});
+
+test('碎碎念：应答不是 JSON（网关报错页之类）→ 归成网络错误，不是 SyntaxError', async () => {
+  provider('deepseek');
+  const cfg = petConfig().main;
+  replies.push(() => new Response('<html>502 Bad Gateway</html>', { status: 200 }));
+  const err = await llm.whisper(cfg, cfg.pets[0], { force: true }).catch((e) => e);
+  assert.ok(err instanceof llm.LlmError, '应归一成 LlmError：' + err);
+  assert.equal(err.reason, 'network');
+});
+
 test('对话：带上最近 N 轮记忆', async () => {
   provider('deepseek');
   store.update({ ai: { memoryRounds: 1 } });
@@ -345,4 +405,19 @@ test('余额：DeepSeek 优先报人民币；不支持的服务商直接说不�
   const none = await llm.balance({ force: true });
   assert.equal(none.ok, false);
   assert.equal(none.reason, 'unsupported');
+});
+
+// ---------------------------------------------------------------- 表情包池缓存
+test('表情包池：只留存在图片文件的条目，且进程内复用同一份（不再每条消息 fs.existsSync × N）', () => {
+  const cfg = petConfig().main;
+  const a = memePool(cfg);
+  const b = memePool(cfg);
+  assert.equal(a, b, '同一份缓存');
+  assert.ok(a.length > 0, '包内应至少有一张可用表情包');
+  for (const m of a) {
+    assert.ok(m.desc, '每条都要有描述：' + m.name);
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'desktop', 'assets', 'memes', m.name + '.png')), m.name);
+  }
+  assert.equal(imageInstruction(a), imageInstruction(a), '配图说明也缓存');
+  assert.ok(imageInstruction(a).includes(a[0].name), '说明里带上全部表情包名');
 });

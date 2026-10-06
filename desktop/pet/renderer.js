@@ -55,6 +55,12 @@ async function boot() {
     window.__dshPetDebug.spriteCount = sprites.length;
     for (const s of sprites) s.playIdle();
     startLoops();
+    // 页面还在加载时主进程就可能推来「挂起 / 主人不在」（锁着屏或藏着时重建了窗口）：
+    // 那时还没有精灵可通知，这里补上，不然她会在没人看得见的地方一直解码视频
+    for (const s of sprites) {
+      s.setAway(petAway);
+      if (petSuspended) s.suspend();
+    }
     if (window.petBridge && window.petBridge.ready) window.petBridge.ready();
   } catch (e) {
     showError(tr('pet.notReady', { msg: e && e.message ? String(e.message) : String(e) }));
@@ -97,12 +103,33 @@ if (window.petBridge) {
   window.petBridge.onAction((a) => {
     for (const s of sprites) s.onAction(a);
   });
+  // 窗口被隐藏（⌃⌥P / 菜单里「隐藏」）或锁屏 → 挂起视频解码与定时任务；再叫回来时接上。
+  //
+  // 试过改走 Page Visibility（放开 backgroundThrottling + 监听 visibilitychange），想顺带覆盖
+  // 「被全屏应用挡住 / 息屏」：实测（Electron 43 / macOS）窗口 hide() 之后 document.visibilityState
+  // 仍是 visible，2s 轨迹全是 v；放开节流后也只在一次运行里翻转过、随后两次都不翻 —— 不可靠。
+  // 于是回到显式通道：锁屏由主进程 powerMonitor 通知，隐藏由窗口 hide/show 通知，都是确定信号。
+  window.petBridge.onSuspend((suspended) => {
+    petSuspended = suspended;
+    for (const s of sprites) (suspended ? s.suspend() : s.resume());
+  });
+  // 主人离开电脑 / 回来（系统空闲时间，主进程判定）：离开时她播完这段就歇着，回来接着播
+  window.petBridge.onAway((away) => {
+    petAway = away;
+    for (const s of sprites) s.setAway(away);
+  });
+  // 改名字：不重建窗口，就地换掉视频/命中区的 title
+  window.petBridge.onName((name) => {
+    for (const s of sprites) s.setName(name);
+  });
 }
 
-// 窗口内容区尺寸异常时按当前位置重新规整（拖拽 / 飞行 / 漫游中不动，位置由输入或物理驱动）
+// 窗口内容区尺寸异常时按当前位置重新规整（拖拽 / 飞行 / 漫游中不动，位置由输入或物理驱动）。
+// 位置多半没变，但窗口被系统改过：清掉去重键，强制重发一次让主进程复位
 window.addEventListener('resize', () => {
   for (const s of sprites) {
     if (s.dragState.active || s.throwRef !== null || s.moveRef !== null) continue;
+    s._boundsKey = null;
     s.position();
   }
 });

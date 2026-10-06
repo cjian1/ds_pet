@@ -41,9 +41,11 @@ PetSprite.prototype.startWhisperLoop = function startWhisperLoop() {
   };
   const tick = async () => {
     try {
-      if (!this.dragState.active && !this.menuOpen && !this.whisperOn && !document.hidden) {
+      // suspended = 窗口已隐藏（见 sprite.js）：不生成、也不弹（恢复时 resume() 会重排循环）；
+      // away = 主人离开电脑：没人听，别花额度，也别把歇着的她叫起来
+      if (!this.suspended && !this.away && !this.dragState.active && !this.menuOpen && !this.whisperOn && !document.hidden) {
         const state = await S.fetchWhisperState(WHISPER_URL + '?auto=1&pet=' + encodeURIComponent(this.pet.id));
-        if (state.ok) this.showWhisper(state.text, state.image);
+        if (state.ok && !this.suspended) this.showWhisper(state.text, state.image);
       }
     } catch (e) {
       console.warn('[pet] 碎碎念失败', e);
@@ -133,11 +135,13 @@ function startLoops() {
   if (loopsStarted) return;
   loopsStarted = true;
 
-  // 定时报余额：第一次也等满一个周期（启动时她先打招呼，不急着报账）
-  if (sprites.some((s) => s.pet.balanceEnabled)) {
-    const intervalMs = Math.max(60, config.refreshSec?.balance ?? 1800) * 1000;
-    const balanceLoop = async () => {
-      try {
+  // 定时报余额：第一次也等满一个周期（启动时她先打招呼，不急着报账）。
+  // 不在这里判断开关、而是每拍再判：这样设置里打开/关掉「定时报余额」当场生效，不必重建窗口。
+  const intervalMs = Math.max(60, config.refreshSec?.balance ?? 1800) * 1000;
+  const balanceLoop = async () => {
+    try {
+      // 隐藏期间 / 主人不在时不查；开关关着也不查
+      if (!sprites.every((s) => s.suspended || s.away) && sprites.some((s) => s.pet.balanceEnabled)) {
         const state = await S.fetchBalanceState(BALANCE_URL);
         balance = state;
         window.__dshPetDebug.lastBalanceOk = state && state.ok === true;
@@ -147,13 +151,13 @@ function startLoops() {
         } else {
           applyBalanceNotice(state, false);
         }
-      } catch (e) {
-        console.warn('[pet] 余额拉取失败', e);
       }
-      setTimeout(() => void balanceLoop(), intervalMs);
-    };
+    } catch (e) {
+      console.warn('[pet] 余额拉取失败', e);
+    }
     setTimeout(() => void balanceLoop(), intervalMs);
-  }
+  };
+  setTimeout(() => void balanceLoop(), intervalMs);
 
   for (const s of sprites) s.startWhisperLoop();
 }

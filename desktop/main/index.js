@@ -12,6 +12,7 @@ const {
   nativeImage,
   ipcMain,
   globalShortcut,
+  powerMonitor,
   dialog,
   shell,
 } = require('electron');
@@ -46,6 +47,8 @@ const settingsWindow = require('./settings-window');
 const { migrate } = require('./migrate');
 const Providers = require('./providers');
 const { createFocusReturn, macSystem } = require('./focus-return');
+const { createStreamBuffer } = require('./stream-buffer');
+const { needsPetWindowReload } = require('./pet-reload');
 const Updater = require('./updater');
 
 const RES = path.join(__dirname, '..', 'resources');
@@ -108,6 +111,24 @@ function ctx() {
 function petAction(action) {
   if (!store.get().app.visible) setVisible(true);
   petWindow.send('pet:action', action);
+}
+
+/**
+ * 渲染端「用到时才读」的那部分配置：改了推一份过去就地生效即可，不必重建整窗（见 pet-reload.js）。
+ * 这里一次带全，将来加字段只改这一处 + sprite.js 的 applyLiveConfig。
+ */
+function liveConfig() {
+  const cfg = petConfig();
+  const p = service.mainPet(cfg);
+  return {
+    animationWeights: cfg.main.animationWeights,
+    physics: cfg.main.physics,
+    confineToScreen: cfg.main.confineToScreen,
+    eventsRefreshSec: cfg.main.eventsRefreshSec,
+    position: p.position,
+    whisperEnabled: !!p.whisperEnabled,
+    balanceEnabled: !!p.balanceEnabled,
+  };
 }
 
 function home() {
@@ -326,6 +347,8 @@ function chatState() {
 }
 
 let chatAbort = null;
+/** 流式回复的合帧间隔（ms）：模型按 token 吐字，攒到 ~25 帧/秒再发 IPC */
+const STREAM_FLUSH_MS = 40;
 
 function setupChatIpc() {
   ipcMain.handle('chat:init', () => chatState());
@@ -342,17 +365,22 @@ function setupChatIpc() {
     const cfg = petConfig();
     const pet = service.mainPet(cfg);
     let started = false;
+    // 逐 token 发 IPC 会把渲染端刷爆（每条都要改文本 + 读 scrollHeight 回滚）：攒到 ~25 帧/秒再发（见 stream-buffer.js）
+    const stream = createStreamBuffer({
+      flushMs: STREAM_FLUSH_MS,
+      onFlush: (piece) => {
+        if (!started) {
+          started = true;
+          petWindow.send('pet:action', { type: 'talk' });
+        }
+        emit({ type: 'delta', text: piece });
+      },
+    });
     try {
       const res = await llm.chat(cfg.main, pet, { text, image }, {
         signal: ac.signal,
         onThinking: () => emit({ type: 'thinking' }),
-        onDelta: (piece) => {
-          if (!started) {
-            started = true;
-            petWindow.send('pet:action', { type: 'talk' });
-          }
-          emit({ type: 'delta', text: piece });
-        },
+        onDelta: (piece) => stream.push(piece),
       });
       // 面板没开着（比如主人把它关了）：让她把回复说出来
       if (!chatWindow.isVisible()) petWindow.send('pet:action', { type: 'say', text: res.reply, image: res.image });
@@ -360,6 +388,7 @@ function setupChatIpc() {
     } catch (e) {
       return { ok: false, reason: e.reason || 'error', message: e.message || String(e) };
     } finally {
+      stream.flushNow(); // 尾部不足一帧的正文补齐，不丢字
       if (chatAbort === ac) chatAbort = null;
     }
   });
@@ -487,7 +516,7 @@ function setupSettingsIpc() {
   ipcMain.handle('settings:balance', async () => llm.balance({ force: true }));
   ipcMain.handle('settings:clear-history', () => {
     llm.clearHistory('main');
-    chatWindow.send('chat:refresh', chatState());
+    if (chatWindow.window()) chatWindow.send('chat:refresh', chatState());
     return true;
   });
   ipcMain.on('settings:open-data', () => shell.openPath(dataDir()));
@@ -519,9 +548,18 @@ function onSettingsChange(next, prev) {
   const ai = aiState();
   const aiFlip = ai !== lastAiState;
   lastAiState = ai;
-  // 影响桌宠本身的设置：重建窗口（新窗口就绪后才替换旧窗口，几乎无闪烁）
-  if ((changed('pet') || changed('talk') || langChanged || aiFlip) && next.app.visible && petWindow.window()) {
+  // 影响桌宠本身的设置：重建窗口（新窗口就绪后才替换旧窗口，几乎无闪烁）。
+  // 只有渲染端真会读到的字段变了才重建——判定见 pet-reload.js（重建要重载整页 + 所有视频，很贵）。
+  const petReload = needsPetWindowReload(next, prev, { langChanged, aiFlip });
+  if (petReload && next.app.visible && petWindow.window()) {
     petWindow.recreate();
+  }
+  // 名字不在重建之列：推一次 title 就够（改名字是最常改的一项，不值得重载整页）
+  if (!petReload && next.pet.name !== prev.pet.name) petWindow.setName(store.petName());
+  // 行为类设置（走动 / 活跃度 / 甩力 / 初始角落 / 碎碎念开关与周期 / 报余额）：渲染端用时才读，
+  // 推一份新配置就地生效 —— 不必重建整窗（重建要重载页面并让她从头开始播动画）
+  if (!petReload && (changed('pet') || changed('talk'))) {
+    petWindow.send('pet:action', { type: 'live-config', config: liveConfig() });
   }
   // 换语言：菜单、关于面板、聊天和设置窗口都换成新语言
   if (langChanged) {
@@ -536,11 +574,13 @@ function onSettingsChange(next, prev) {
   }
   if (next.app.showInDock !== prev.app.showInDock) applyDock();
   if (next.app.autoUpdate !== prev.app.autoUpdate) scheduleUpdateChecks();
-  if (!langChanged && (next.pet.name !== prev.pet.name || keyChanged)) {
+  // 窗口没开着就别算：chatState() 要读盘，settingsView() 要拼整份视图；而且 chatWindow.send 会把
+  // 从未打开过的聊天面板顺手创建出来（一个隐藏渲染进程），白占内存。
+  if (!langChanged && chatWindow.window() && (next.pet.name !== prev.pet.name || keyChanged)) {
     chatWindow.send('chat:refresh', chatState());
   }
   const onlyPosition = changed('position') && !['pet', 'talk', 'ai', 'app', 'onboarded'].some(changed);
-  if (!onlyPosition) settingsWindow.send('settings:changed', settingsView());
+  if (!onlyPosition && settingsWindow.isOpen()) settingsWindow.send('settings:changed', settingsView());
   refreshTray();
 }
 
@@ -632,6 +672,9 @@ if (!app.requestSingleInstanceLock()) {
     if (store.get().app.visible) petWindow.create();
     shortcutOk = registerShortcut();
     scheduleUpdateChecks();
+    // 锁屏 / 屏保：没人看得到她 → 停视频解码 + rAF + 碎碎念，连兜底轮询也停；解锁再按可见性恢复
+    powerMonitor.on('lock-screen', () => petWindow.setScreenLocked(true));
+    powerMonitor.on('unlock-screen', () => petWindow.setScreenLocked(false));
     // 开发态调试把手（node --inspect 连上主进程后可直接调用）
     if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat, petConfig, focusReturn, updater };
 

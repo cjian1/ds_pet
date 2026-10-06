@@ -45,8 +45,54 @@ function nearBottom() {
   const s = els.scroll;
   return s.scrollHeight - s.scrollTop - s.clientHeight < 80;
 }
+
+/**
+ * 跟不跟随最新消息：默认跟；用户自己往上滚了就停跟，滚回底部再恢复。
+ *
+ * 不能用「够近才贴」（拿 nearBottom 当闸门）那套：开面板时图片还没撑开，第一次贴底算的是**旧高度**，
+ * 等图片陆续加载把内容撑高，后面的贴底全被闸门挡掉 —— 面板就停在最新消息上方（实测长记录差 ~700px）。
+ * 换成这个状态后，内容每长高一次就重新贴到底，直到收敛。
+ */
+let pinnedToBottom = true;
+
 function toBottom(force) {
-  if (force || nearBottom()) els.scroll.scrollTop = els.scroll.scrollHeight;
+  if (force) pinnedToBottom = true;
+  if (!pinnedToBottom) return;
+  // 必须用 instant：CSS 里的 scroll-behavior:smooth 会让赋值产生一串中间位置，
+  // 期间的 scroll 事件会被当成「用户滚上去了」，贴底反而把自己取消掉。
+  els.scroll.scrollTo({ top: els.scroll.scrollHeight, behavior: 'instant' });
+}
+
+// 只有「用户自己在滚」才停跟。用两个不会误判的信号：
+//   · 明确的滚动手势：滚轮 / 触摸；
+//   · scrollTop 明显往回退 —— 自己的贴底只会把它往下推，图片把内容撑高也不会让它变小，
+//     所以「先变大、又变小」只能是用户在往回翻（也覆盖拖滚动条、键盘翻页）。
+// 不能直接拿「scroll 事件 + 够不够近」判断：程序化贴底同样触发 scroll，而图片可能在那之前就把
+// 内容撑高，那一刻算出「不够近」就把贴底自己取消了 —— 面板停在历史中间那个 bug 的成因。
+let lastScrollTop = 0;
+els.scroll.addEventListener('wheel', () => { pinnedToBottom = false; }, { passive: true });
+els.scroll.addEventListener('touchstart', () => { pinnedToBottom = false; }, { passive: true });
+els.scroll.addEventListener('scroll', () => {
+  const top = els.scroll.scrollTop;
+  if (top < lastScrollTop - 4) pinnedToBottom = false; // 往回翻了 → 停跟
+  else if (nearBottom()) pinnedToBottom = true; // 滚回底部 → 恢复跟
+  lastScrollTop = top;
+});
+
+/**
+ * 同一帧内的多次「贴底」只做一次。
+ *
+ * 每张图加载完都会让列表重新布局，而 nearBottom() 要读 scrollHeight（强制同步布局）。
+ * 长记录开面板时几十张图接踵加载，逐张调用就是几十次强制布局 —— 实测这比图片解码本身贵得多。
+ * 合并到帧上：视觉一样（最多晚一帧贴底），布局只算一次。
+ */
+let bottomRaf = null;
+function scheduleBottom() {
+  if (bottomRaf !== null) return;
+  bottomRaf = requestAnimationFrame(() => {
+    bottomRaf = null;
+    toBottom();
+  });
 }
 function fmtTime(ts) {
   const d = new Date(ts);
@@ -100,7 +146,11 @@ function addMessage(role, text, image, opts = {}) {
     img.src = image;
     img.alt = '';
     img.draggable = false;
-    img.addEventListener('load', () => toBottom());
+    // 长记录开面板时，历史里的表情包原本会一次性全部解码（实测 40 张 → 约 0.9 CPU 秒）。
+    // 只有滚到眼前的才解码；解码本身也挪到主线程外，别卡住输入。
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.addEventListener('load', () => scheduleBottom());
     bubble.appendChild(img);
   }
   const span = document.createElement('span');
@@ -110,7 +160,9 @@ function addMessage(role, text, image, opts = {}) {
   row.appendChild(bubble);
   els.list.appendChild(row);
   updateEmpty();
-  toBottom(opts.force);
+  // deferBottom：批量灌历史时不要每条都贴底 —— toBottom 要读 scrollHeight（强制同步布局），
+  // 80 条就是 80 次越来越大的强制布局。renderHistory 最后统一贴一次底。
+  if (!opts.deferBottom) toBottom(opts.force);
   return { row, bubble, span };
 }
 
@@ -158,7 +210,7 @@ function renderHistory() {
     if (m.role === 'user' && (/^（主人递来一张图）/.test(m.content) || m.content === '（递来一张图）')) m.content = tr('chat.sharedImage');
     let image = null;
     if (m.image) image = m.role === 'user' ? assetUrl('uploads', m.image) : memeUrl(m.image);
-    addMessage(m.role, m.content, image, { ts: m.ts });
+    addMessage(m.role, m.content, image, { ts: m.ts, deferBottom: true });
   }
   updateEmpty();
   requestAnimationFrame(() => toBottom(true));
@@ -215,8 +267,12 @@ async function send(text, image) {
   }
   const cur = current;
   current = null;
+  cancelStreamPaint();
   setBusy(false);
   if (!cur || cur.id !== id) return;
+  // 请求结束就先收掉「正在输入」：三种结局（回复 / 中止 / 失败）都要收，
+  // 尤其「正文已到但这帧还没画」时 span 还不在 DOM 里，光设 textContent 三个点会一直闪下去
+  settleTyping(cur);
   if (res && res.ok) {
     finishReply(cur, res.reply, res.image);
   } else {
@@ -234,12 +290,25 @@ async function send(text, image) {
   }
 }
 
+/**
+ * 把「正在输入」的三个点收掉、换成正文。
+ *
+ * 那三个点是 `animation: blink … infinite` —— 无限动画，留在页面上就一直转。
+ * 收口要覆盖所有结局（回复 / 中止 / 失败）；而且「正文已到、但那一帧还没画出来」时
+ * span 还不在 DOM 里，光给它设 textContent 是看不见的，三个点就永远留在那儿闪。
+ */
+function settleTyping(cur) {
+  const m = cur && cur.msg;
+  if (!m || !m.dots) return;
+  m.dots.remove();
+  m.dots = null;
+  if (!m.span.isConnected) m.bubble.appendChild(m.span);
+  m.span.textContent = cur.text || '';
+}
+
 function finishReply(cur, reply, image) {
   const m = cur.msg;
-  if (m.dots) {
-    m.dots.remove();
-    m.dots = null;
-  }
+  if (m.dots) settleTyping(cur);
   if (!m.span.isConnected) m.bubble.appendChild(m.span);
   m.span.textContent = reply || cur.text;
   if (image) {
@@ -253,20 +322,36 @@ function finishReply(cur, reply, image) {
   toBottom();
 }
 
+// 流式正文按帧合并再写 DOM：每来一个 delta 都改文本 + toBottom()（读 scrollHeight）会触发强制回滚，
+// 快模型下一个 token 一次，肉眼看着是「抖」；攒到下一帧只写一次，既省 CPU 也更顺。
+let streamRaf = null;
+function cancelStreamPaint() {
+  if (streamRaf !== null) {
+    cancelAnimationFrame(streamRaf);
+    streamRaf = null;
+  }
+}
+function paintStream() {
+  streamRaf = null;
+  const cur = current;
+  if (!cur) return;
+  const m = cur.msg;
+  if (m.dots) {
+    m.dots.remove();
+    m.dots = null;
+    m.bubble.appendChild(m.span);
+    setStatus(tr('chat.typing'));
+  }
+  m.span.textContent = cur.text;
+  toBottom();
+}
+
 api.onStream((ev) => {
   if (!current || ev.id !== current.id) return;
   if (ev.type === 'thinking') setStatus(tr('chat.thinking'));
   if (ev.type === 'delta') {
-    const m = current.msg;
-    if (m.dots) {
-      m.dots.remove();
-      m.dots = null;
-      m.bubble.appendChild(m.span);
-      setStatus(tr('chat.typing'));
-    }
     current.text += ev.text;
-    m.span.textContent = current.text;
-    toBottom();
+    if (streamRaf === null) streamRaf = requestAnimationFrame(paintStream);
   }
 });
 

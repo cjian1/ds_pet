@@ -31,9 +31,26 @@ function toast(text) {
 }
 
 async function set(patch, message) {
-  view = await api.set(patch);
-  render();
+  applyView(await api.set(patch));
   if (message) toast(message);
+}
+
+/**
+ * 同一份视图只渲染一次。
+ *
+ * 改一个设置会走两条路回到这里：主进程的 settings:changed 推送，和 set() 的 invoke 返回值——
+ * 内容完全一样。不挡的话每改一项都要整页渲染两遍（40 多处 DOM 写入 × 2）。
+ * 返回 true 表示这次确实重画了。
+ */
+let renderedSig = '';
+function applyView(v) {
+  if (!v) return false;
+  const sig = JSON.stringify(v);
+  if (sig === renderedSig) return false;
+  renderedSig = sig;
+  view = v;
+  render();
+  return true;
 }
 
 function fillRange(el) {
@@ -71,6 +88,9 @@ function showTab(tab) {
   for (const p of document.querySelectorAll('.page')) p.classList.toggle('on', p.dataset.page === tab);
   $('content').scrollTop = 0;
   if (tab === 'ai') void loadModels();
+  // 顶部的预览视频只在「桌宠」页看得见：切到别的页就停，别在看不见的地方一直解码
+  if (tab === 'pet') preview.play().catch(() => {});
+  else preview.pause();
 }
 for (const a of document.querySelectorAll('nav a')) a.addEventListener('click', () => showTab(a.dataset.tab));
 api.onTab(showTab);
@@ -285,17 +305,26 @@ function renderAi() {
   renderModels();
 }
 
+/** 已填进 <datalist> 的模型清单签名：改一个别的设置也走 renderModels，没必要重建几百个 option */
+let modelsListSig = '';
+
 function renderModels() {
   const box = $('models');
   const pv = view.provider;
   box.innerHTML = '';
-  const dl = $('model-list');
-  dl.innerHTML = '';
-  for (const md of models) {
-    const o = document.createElement('option');
-    o.value = md.id;
-    if (md.name && md.name !== md.id) o.label = md.name;
-    dl.appendChild(o);
+  // 模型多的服务商（OpenRouter 几百个）以前每改一个设置都要重建整串 option；
+  // 清单没变就复用（datalist 的选项只由 models 决定）。
+  const sig = modelsState + '|' + models.map((m) => m.id + ':' + (m.name || '')).join(',');
+  if (sig !== modelsListSig) {
+    modelsListSig = sig;
+    const dl = $('model-list');
+    dl.innerHTML = '';
+    for (const md of models) {
+      const o = document.createElement('option');
+      o.value = md.id;
+      if (md.name && md.name !== md.id) o.label = md.name;
+      dl.appendChild(o);
+    }
   }
   const hint = $('model-hint');
   hint.classList.remove('warn');
@@ -619,8 +648,8 @@ api.onUpdate((st) => {
 
 // ---------------------------------------------------------------- 启动
 api.onChanged((v) => {
-  view = v;
-  render();
+  // 同一次变更的两条路径只渲染一次（见 applyView）
+  if (!applyView(v)) return;
   // 别处（菜单栏 / 另一个窗口）改了 AI 配置：在 AI 页上就顺手刷新模型列表
   const page = document.querySelector('.page.on');
   if (page && page.dataset.page === 'ai') void loadModels();
@@ -659,6 +688,7 @@ api.get().then((v) => {
   previewIdle = v.api + '/thumb/main/' + encodeURIComponent('待机呼吸休闲') + '.webm';
   preview.src = previewIdle;
   render();
+  renderedSig = JSON.stringify(v); // 首屏已经画过这份视图，别让随后的推送再画一遍
   showTab(location.hash ? location.hash.slice(1) : v.hasKey ? 'pet' : 'ai');
   void setUpdate(api.updateState());
 });

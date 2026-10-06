@@ -327,10 +327,21 @@ function defaultPersona(lang = store.lang()) {
 
 /**
  * 渲染端要的配置（上游 readAllConfig 成品结构 {main: {...}}）：包内默认 + 用户设置覆盖。
+ *
+ * 成品会按影响结果的设置做签名缓存：每次点菜单 / 发消息 / 碎碎念都要用，而 baseConfig 每次都要
+ * 深拷贝 15KB 包内配置，没必要重复。返回值只读（调用方只读字段）。
  */
+let petConfigCache = { sig: '', cfg: null };
+
 function petConfig(s = store.get()) {
-  const cfg = baseConfig();
   const hasKey = store.hasApiKey();
+  // s 不是当前设置（理论上只有测试/预演会这么调）时不缓存，避免签名与实际入参对不上
+  const cacheable = s === store.get();
+  const sig = cacheable
+    ? JSON.stringify([s.pet, s.talk, s.ai.persona, s.ai.memoryRounds, hasKey, store.provider().balance, store.lang()])
+    : '';
+  if (cacheable && petConfigCache.cfg && petConfigCache.sig === sig) return petConfigCache.cfg;
+  const cfg = baseConfig();
   cfg.pets = [
     {
       id: 'main',
@@ -355,7 +366,9 @@ function petConfig(s = store.get()) {
   cfg.animationWeights = { idle: live.idle, turn: live.turn, move: s.pet.roam ? 5 : 0 };
   cfg.whisperPrompt = s.ai.persona.trim() || defaultPersona();
   cfg.lang = store.lang();
-  return { main: cfg };
+  const out = { main: cfg };
+  if (cacheable) petConfigCache = { sig, cfg: out };
+  return out;
 }
 
 module.exports = {

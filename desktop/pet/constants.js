@@ -149,6 +149,8 @@ function balanceView(state) {
   return rows;
 }
 const WHISPER_URL = BASE + '/whisper';
+/** 主人离开后她歇着之前打的那个盹（不在动画池里就跳过，直接歇） */
+const DOZE_ANIM = '原地小憩沉眠';
 const BUBBLE_DURATION_MS = 10 * 1000; // 余额/碎碎念气泡展示时长（与浏览器一致：定时自动消失，与动画解耦）
 // 窗口四周外扩 = 该比例 × 宠物尺寸：为气泡 / 未来可能的弹窗预留显示空间；
 // 外扩区透明且点击穿透（只有身体命中区可交互）。单点可调——按实际观感改这里。
@@ -164,6 +166,9 @@ let balanceTick = 0;
 let balanceNoticeKey = null; // 上次已提示的不可用原因（reason:provider）：自动轮询只在原因变化时再弹（判定在 shared，与浏览器同一份）
 let bootTimer = null;
 let loopsStarted = false;
+/** 主进程最近一次推来的「挂起」「主人不在」（boot 晚于推送时补给新精灵，见 renderer.js） */
+let petSuspended = false;
+let petAway = false;
 
 // ---------- 调试钩子（冒烟自检/排障用；真实运行也可排查错误/配置/气泡） ----------
 window.__dshPetDebug = {

@@ -106,7 +106,13 @@ Only her body catches clicks; the transparent area around her passes clicks thro
 <summary><b>Is my API key safe? Will this cost a lot?</b></summary>
 
 The key is stored only on your Mac (<code>~/Library/Application Support/ds_pet/settings.json</code>, readable only by your user account) and is only ever sent to the provider you chose. The app has no analytics or telemetry.<br>
-Random chatter happens once every 15 minutes by default, and stops while you're away from your computer for more than 10 minutes. To use less credit, lower the frequency or turn chatter off in Settings.
+Random chatter happens once every 15 minutes by default, and stops while you're away from your computer for more than 5 minutes. To use less credit, lower the frequency or turn chatter off in Settings.
+</details>
+
+<details>
+<summary><b>Does she drain the battery?</b></summary>
+
+While she's on screen, the main cost is playing her animation videos. When she's hidden (<b>⌃⌥P</b>) or the screen is locked, animation, chatter and balance checks all pause. If you're away from your computer for more than 5 minutes, she finishes what she's doing and rests without playing anything; touch the keyboard or mouse and she wakes up.
 </details>
 
 <details>

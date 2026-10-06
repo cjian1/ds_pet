@@ -38,6 +38,7 @@ function createFocusReturn(sys) {
   let interacting = false;
   let lastEnd = -Infinity;
   let stolen = false; // 这次交互把本应用激活了
+  let captures = 0; // 采样次数（每次要起两个 lsappinfo 进程，排障/能耗定位用）
 
   function giveBack() {
     const pid = saved;
@@ -51,6 +52,7 @@ function createFocusReturn(sys) {
     pointerNear() {
       if (active || now() - lastCapture < CAPTURE_EVERY_MS) return;
       lastCapture = now();
+      captures++;
       Promise.resolve(sys.frontPid())
         .then((pid) => {
           if (Number.isInteger(pid) && pid > 0 && pid !== sys.ownPid) saved = pid;
@@ -90,6 +92,11 @@ function createFocusReturn(sys) {
       stolen = false;
       saved = null;
       lastEnd = -Infinity;
+    },
+
+    /** 排障用 */
+    stats() {
+      return { captures, saved, active };
     },
   };
 }

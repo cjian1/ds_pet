@@ -147,6 +147,29 @@ async function send(p, target, { method = 'GET', body, timeoutMs = 20000, signal
   return res;
 }
 
+/**
+ * 读应答体时出的错（流到一半主人点了停止 / 超时 / 断网 / 报文不是 JSON）统一成 LlmError。
+ *
+ * send() 只管到拿到响应头为止；之后读正文时中止或超时，fetch 抛的是原始的 AbortError /
+ * TimeoutError —— 没有 reason，聊天面板就把「主人自己点了停止」当成失败（还给个重试按钮），
+ * 超时则把英文原始报错直接给用户看。
+ */
+function bodyError(p, e, signal) {
+  if (e instanceof LlmError) return e;
+  if (signal && signal.aborted) return new LlmError('aborted', t('err.aborted'));
+  if (e && e.name === 'TimeoutError') return new LlmError('network', t('err.timeout'));
+  const cause = e && e.cause && (e.cause.code || e.cause.message);
+  return new LlmError('network', t('err.network', { name: p.name, msg: cause || (e && e.message) }));
+}
+
+async function jsonBody(p, res, signal) {
+  try {
+    return await res.json();
+  } catch (e) {
+    throw bodyError(p, e, signal);
+  }
+}
+
 // ---------------------------------------------------------------- 模型清单
 let modelsCache = { at: 0, sig: '', data: [] };
 
@@ -161,7 +184,7 @@ async function listModels({ force = false, override } = {}) {
   if (!force && modelsCache.sig === sig && modelsCache.data.length && Date.now() - modelsCache.at < 10 * 60 * 1000) {
     return modelsCache.data;
   }
-  const body = await (await send(p, url(p, 'models'), { timeoutMs: 15000 })).json();
+  const body = await jsonBody(p, await send(p, url(p, 'models'), { timeoutMs: 15000 }));
   const raw = Array.isArray(body && body.data) ? body.data : Array.isArray(body && body.models) ? body.models : [];
   const data = raw
     .filter((m) => m && typeof m === 'object' && (m.id || m.name))
@@ -202,7 +225,7 @@ async function visionModel(p) {
 let balanceCache = { at: 0, payload: null, sig: '' };
 
 async function deepseekBalance(p) {
-  const raw = await (await send(p, p.baseUrl + '/user/balance', { timeoutMs: 12000 })).json();
+  const raw = await jsonBody(p, await send(p, p.baseUrl + '/user/balance', { timeoutMs: 12000 }));
   const infos = (Array.isArray(raw && raw.balance_infos) ? raw.balance_infos : []).filter((i) => i && typeof i === 'object');
   // 接口会同时返回 CNY / USD，顺序不保证：明确优先人民币，避免把 USD 的 0 当成余额
   return (
@@ -357,10 +380,10 @@ async function complete(opts) {
   if (opts.model) p.model = opts.model;
   const o = Object.assign({ temperature: 1.0, maxTokens: 1200, timeoutMs: 60000 }, opts);
   o.effort = o.effort === undefined ? s.ai.effort : o.effort;
-  let r = readNonStream(p, await (await postCompletion(p, o)).json());
+  let r = readNonStream(p, await jsonBody(p, await postCompletion(p, o)));
   if (!r.text && r.truncated && o.maxTokens < 4000) {
     o.maxTokens = Math.min(4000, Math.max(800, o.maxTokens * 4));
-    r = readNonStream(p, await (await postCompletion(p, o)).json());
+    r = readNonStream(p, await jsonBody(p, await postCompletion(p, o)));
   }
   if (!r.text) throw new LlmError('generate-error', t('err.noText'));
   return r.text;
@@ -412,7 +435,7 @@ async function completeStream(opts, { onDelta, onThinking, signal } = {}) {
     out += piece;
     if (onDelta) onDelta(piece);
   };
-  await readSse(res, (json) => {
+  const onJson = (json) => {
     if (p.type === 'anthropic') {
       if (json.type === 'error') throw new LlmError('http', errorDetail(json) || t('err.500'));
       if (json.type === 'content_block_delta' && json.delta) {
@@ -429,7 +452,12 @@ async function completeStream(opts, { onDelta, onThinking, signal } = {}) {
       text(d.content);
       if (ch.finish_reason === 'length') truncated = true;
     }
-  });
+  };
+  try {
+    await readSse(res, onJson);
+  } catch (e) {
+    throw bodyError(p, e, signal); // 流到一半被停下 / 超时：归成 aborted / network，别把原始报错甩给用户
+  }
   out = out.trim();
   if (!out && truncated) {
     // 思考把额度吃光了：放大额度、非流式再来一次
@@ -449,18 +477,33 @@ function petSystemPrompt(cfg, pet) {
   return lines.filter(Boolean).join('\n');
 }
 
+/**
+ * 表情包池与配图说明都是包内 config.jsonc 决定的、进程内不会变，缓存掉重复开销：
+ * 每次对话/碎碎念都要走一遍，原本每条消息都要 fs.existsSync × 张数 + 拼一整段提示词。
+ * 返回的数组只读（调用方只读字段、不修改）。
+ */
+let memePoolCache = null;
+let imageInstructionCache = { pool: null, lang: '', text: '' };
+
 function memePool(cfg) {
   const table = cfg && cfg.memes;
   if (!table || typeof table !== 'object') return [];
+  if (memePoolCache) return memePoolCache;
   const dir = path.join(ASSETS, 'memes');
-  return Object.entries(table)
+  memePoolCache = Object.entries(table)
     .map(([name, desc]) => ({ name, desc: String(desc || '').trim() }))
     .filter((m) => m.name && m.desc && fs.existsSync(path.join(dir, m.name + '.png')))
     .sort((a, b) => a.name.localeCompare(b.name));
+  return memePoolCache;
 }
 
+/** 配图说明按「池 + 界面语言」缓存（换语言后文案要跟着换） */
 function imageInstruction(pool) {
-  return t('prompt.memes', { list: pool.map((m) => '- ' + m.name + '：' + m.desc).join('\n') });
+  const lang = store.lang();
+  if (imageInstructionCache.pool === pool && imageInstructionCache.lang === lang) return imageInstructionCache.text;
+  const text = t('prompt.memes', { list: pool.map((m) => '- ' + m.name + '：' + m.desc).join('\n') });
+  imageInstructionCache = { pool, lang, text };
+  return text;
 }
 
 function splitImageTag(text, pool) {
@@ -660,5 +703,5 @@ module.exports = {
   resetCaches,
   petSystemPrompt,
   /** 只给单测用（test/llm.test.js） */
-  _internal: { openaiPayload, anthropicPayload, splitImageTag, url, errorFrom, postCompletion },
+  _internal: { openaiPayload, anthropicPayload, splitImageTag, url, errorFrom, postCompletion, memePool, imageInstruction },
 };

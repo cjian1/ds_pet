@@ -13,7 +13,8 @@
     "check": "for f in desktop/main/*.js desktop/pet/*.js desktop/chat/*.js desktop/settings/*.js desktop/i18n/*.js; do node --check \"$f\" || exit 1; done",
     "test": "node --test test/*.test.js",
     "test:real-input": "node scripts/debug/real-input.mjs",
-    "test:update": "node scripts/debug/update-e2e.mjs"
+    "test:update": "node scripts/debug/update-e2e.mjs",
+    "test:energy": "node scripts/debug/energy-probe.mjs"
   },
   "devDependencies": {
     "electron": "43.7.7"

@@ -264,12 +264,38 @@ try {
   const clicksPool = await pet.eval('sprites[0].animations.clicks');
 
   let g = await geo();
-  safeArea = await placeCatcher(g);
-  // 你自己装的 ds_pet 如果正好挡在测试区域上面，点击会落到它身上：先让它让开
-  const overlap = JSON.parse(await mouse.cmd('windows')).filter(
-    (w) => w.owner === 'ds_pet' && w.x < safeArea.x + safeArea.width && w.x + w.width > safeArea.x && w.y < safeArea.y + safeArea.height && w.y + w.height > safeArea.y,
-  );
-  if (overlap.length) throw new Error('已安装的 ds_pet 挡在测试区域上，先把她隐藏（⌃⌥P）或挪开再跑');
+  // 你自己装的 ds_pet 如果正好挡在测试区域上面，点击会落到它身上 —— 必须让开。
+  // 注意：本测试自己那只也叫 ds_pet（同一个 app 名），所以只按 owner 过滤会把**自己**也算进去，
+  // 那样这道防线永远成立、测试永远跑不过；必须按 pid 排除自己的窗口。
+  const ownPid = await main.eval('process.pid');
+  const foreignPets = async () =>
+    JSON.parse(await mouse.cmd('windows')).filter((w) => w.owner === 'ds_pet' && w.pid !== ownPid);
+  const overlaps = (area, wins) =>
+    wins.some(
+      (w) =>
+        w.x < area.x + area.width && w.x + w.width > area.x && w.y < area.y + area.height && w.y + w.height > area.y,
+    );
+  // 默认落点优先；被占了就把测试这只挪到别处再试（挪的是测试实例，不碰你的那只）。
+  // 注意纵向不能太靠上：第 5 步的拖拽会把窗口往上带 50px，加上「窗口余量」那一步要点在
+  // 窗口左上角内 20px 处 —— 太靠上就会点进菜单栏（y<33 属于系统菜单栏），点击被系统吃掉。
+  const SPOTS = [
+    [0.62, 0.45],
+    [0.32, 0.5],
+    [0.32, 0.62],
+    [0.68, 0.5],
+    [0.32, 0.45],
+  ];
+  for (const [rx, ry] of SPOTS) {
+    if (rx !== SPOTS[0][0] || ry !== SPOTS[0][1]) {
+      await pet.eval(`(() => { sprites[0].customPos = { rx: ${rx}, ry: ${ry} }; sprites[0].position(); })()`);
+      await sleep(500);
+      g = await geo();
+    }
+    safeArea = await placeCatcher(g);
+    if (!overlaps(safeArea, await foreignPets())) break;
+    safeArea = null;
+  }
+  if (!safeArea) throw new Error('已安装的 ds_pet 挡在测试区域上，先把她隐藏（⌃⌥P）或挪开再跑');
   const front0 = await mouse.cmd('front');
   console.log(`桌宠窗口 ${g.win.x},${g.win.y} ${g.win.width}×${g.win.height}；最前面的应用：${front0}\n`);
   if (SETUP_ONLY) {
@@ -379,7 +405,16 @@ try {
   }
   before = await catcherClicks();
   await clickAt({ x: g.win.x + 20, y: g.win.y + 20 });
-  check('菜单关掉后：透明区照样穿透', (await catcherClicks()) === before + 1);
+  const marginAfter = await catcherClicks();
+  // 失败时把两端状态一起打出来：只报 ✗ 分不清是「窗口还在收鼠标」还是「点没落进面板」
+  const marginDiag = {
+    click: { x: Math.round(g.win.x + 20), y: Math.round(g.win.y + 20) },
+    win: g.win,
+    catcher: safeArea,
+    ignoring: await main.eval('__whale.petWindow.stats().ignoring'),
+    interactive: await pet.eval('window.__dshPetDebug.interactive'),
+  };
+  check('菜单关掉后：透明区照样穿透', marginAfter === before + 1, JSON.stringify(marginDiag));
 
   // 7. 把图片拖到她身边（不是她身上）：她不接，也不亮
   const src = { x: safeArea.x + SRC / 2, y: safeArea.y + 95 };

@@ -22,13 +22,8 @@ class PetSprite {
     this.winH = this.height + this.bottomPad;
     // 窗口内【可交互区域】= 身体命中区（像素，窗口坐标）。浏览器 overlay 只有 .dsh-pet-hit 是
     // pointer-events:auto（root/stage/气泡全 none）——桌面严格对齐：命中区外含透明像素一律穿透到下层应用。
-    // HIT_BOX 是 640×360 舞台坐标：x 按窗口宽缩放；y 除舞台高外还要加 bottomPad（舞台被下移）。
-    this.hitRect = {
-      x: (S.HIT_BOX.x0 / 640) * this.size,
-      y: this.bottomPad + (S.HIT_BOX.y0 / 360) * this.height,
-      w: ((S.HIT_BOX.x1 - S.HIT_BOX.x0) / 640) * this.size,
-      h: ((S.HIT_BOX.y1 - S.HIT_BOX.y0) / 360) * this.height,
-    };
+    // 公式与主进程共用同一份源码（hit-rect.js）：两边算的必须是同一块区域
+    this.hitRect = petHitRect(S.HIT_BOX, this.size, this.bottomPad);
     window.__dshPetDebug.hitRect = this.hitRect;
     // 左右透明边余量（视频盒内宠物身体居中）：让边界按"身体"贴边——宠物能走到屏幕边缘，
     // 但身体永不越界（漫游/拖拽都不会弄丢宠物）。与浏览器 overlay 的 sideAllow 同一套语义。
@@ -67,6 +62,7 @@ class PetSprite {
     this.justDragged = false;
     this._interactive = null; // 已上报的可交互状态（setInteractive 去重用）
     this._inputBusy = null; // 已上报的"正在用输入"状态（syncInputBusy 去重用）
+    this._boundsKey = null; // 已发给主进程的窗口几何（sendBounds 去重用；置空 = 下一次强制重发）
     // 拖拽抛掷物理（与浏览器 pet.ts 同构；纯计算在 shared-core S.*）：
     // 拖拽中弹簧跟随目标（包围盒左上角，工作区 px），松手按指针轨迹估速 → 抛掷（重力+边缘反弹）
     this.dragTrail = []; // 指针轨迹采样（screenX/Y + performance.now()，初速估算用）
@@ -99,6 +95,11 @@ class PetSprite {
     // 配图名称（配置 memes 的键；whisperImageEnabled 开启时由主进程随机抽定，随文本一起来）
     this.whisperImage = '';
     this.whisperLoopTimer = null;
+    this.suspended = false; // 窗口隐藏期间挂起（见 suspend/resume）
+    this.suspendedMove = false; // 挂起时是否打断了漫游（恢复后回待机，别在原地踏步）
+    this.away = false; // 主人离开电脑了（主进程推来，见 setAway）
+    this.resting = false; // 正停在某段动画的最后一帧歇着（不解码）
+    this.dozed = false; // 这次离开已经打过盹了
 
     // DOM：sprite 钉在窗口内 (margin.l, margin.t)；宠物"位置"= sprite 位置，窗口随余量外扩
     this.el = document.createElement('div');
@@ -180,6 +181,108 @@ class PetSprite {
     this.el.remove();
   }
 
+  /**
+   * 窗口隐藏：停掉一切持续消耗（视频解码 / 漫游 / 拖拽跟随 / 抛掷 / 挤压 rAF / 碎碎念定时器）。
+   *
+   * 桌宠窗口关掉了 backgroundThrottling（不关就没法在别的应用前台时继续做动画），代价是窗口隐藏后
+   * 系统也不会替她节流：视频会继续解码、rAF 会继续跑、碎碎念循环会继续按周期调 AI。所以她一藏起来
+   * 就得显式挂起。resume() 把前台视频接回播放并重启碎碎念循环。
+   */
+  suspend() {
+    if (this.suspended) return;
+    this.suspended = true;
+    // 极端情况：正拖着她 / 右键菜单开着时按了隐藏。必须把输入状态收干净，
+    // 否则恢复后 _inputBusy 还停在 true，主进程再也不会把她翻回点击穿透。
+    if (this.dragState.active) {
+      this.dragState = { active: false, dragging: false, sx: 0, sy: 0, petX: 0, petY: 0 };
+      this.justDragged = false;
+    }
+    if (this.menuOpen) this.menuOpen = false;
+    this.syncInputBusy();
+    this.setInteractive(false);
+    if (this.whisperLoopTimer !== null) {
+      window.clearTimeout(this.whisperLoopTimer);
+      this.whisperLoopTimer = null;
+    }
+    this.stopSquash();
+    this.stopDragFollow();
+    this.stopThrow();
+    this.suspendedMove = this.moveRef !== null;
+    this.stopMove();
+    // 作废进行中的动画切换：它 loadeddata 后会 el.play()，把刚暂停的视频又启动
+    // （隐藏/锁屏的省电就是这么漏掉的）。resume() 会重新驱动当前动画。
+    this.pending = null;
+    for (const v of [this.videoA, this.videoB]) {
+      try {
+        v.pause();
+      } catch {
+        /* 忽略：暂停失败不影响其它清理 */
+      }
+    }
+  }
+
+  resume() {
+    if (!this.suspended) return;
+    this.suspended = false;
+    // 挂起期间可能还来过切换（她被藏起来时，聊天面板里回话会让她「说话」）：那次加载在 onReady 里
+    // 被放弃了。pending 不清掉的话，下面重放同一段动画会被 switchTo 的防重分支吞掉 —— 视频停着不动，
+    // 她就定格在那儿，直到主人点她一下。
+    this.pending = null;
+    if (this.suspendedMove) {
+      this.suspendedMove = false;
+      this.playIdle(); // 漫游被隐藏打断：回来直接回待机，避免「视频在走、窗口不动」的原地踏步
+    } else {
+      // 重新驱动当前动画：挂起期间那次加载已作废，这里补上（同一段素材走 HTTP 缓存，很便宜）
+      this.switchTo(this.anim, this.once);
+    }
+    this.startWhisperLoop();
+  }
+
+  /**
+   * 主人离开电脑 / 回来了（主进程按系统空闲时间推来，见 main/pet-window.js）。
+   *
+   * 离开后不打断正在播的这段，等它播完（handleEnded）就不再续下一段：先打个盹，再停在最后一帧歇着。
+   * 播完的视频不再解码、也不出新帧，和藏起来一样几乎不耗电 —— 屏幕熄了但系统没睡
+   * （台式机、后台下载、合盖外接屏…）时，她不会通宵空转。主人一碰键鼠就接着播。
+   */
+  setAway(on) {
+    const away = !!on;
+    if (away === this.away) return;
+    this.away = away;
+    window.__dshPetDebug.away = away;
+    if (away) {
+      this.dozed = false;
+      return;
+    }
+    // 前台视频已经播完也算歇着（比如打盹那段没加载出来，停在了上一段的最后一帧）
+    const front = this.front === 0 ? this.videoA : this.videoB;
+    if (!this.suspended && (this.resting || front.ended)) this.playIdle();
+  }
+
+  /** handleEnded 里、主人不在时调用：先打个盹（有这段动画的话），之后就歇着 */
+  restAfterEnded() {
+    if (!this.dozed) {
+      this.dozed = true;
+      const canDoze = (this.animations.categories || []).some((c) => (c.actions || []).includes(DOZE_ANIM));
+      if (canDoze && this.anim !== DOZE_ANIM) {
+        this.playOnce(DOZE_ANIM);
+        return;
+      }
+    }
+    this.resting = true;
+    window.__dshPetDebug.resting = true;
+  }
+
+  /** 改名字（主进程推来）：只换 title，不重载页面（见 main/pet-reload.js） */
+  setName(name) {
+    const v = String(name || '');
+    if (!v || v === this.pet.name) return;
+    this.pet.name = v;
+    this.videoA.title = v;
+    this.videoB.title = v;
+    this.hit.title = v;
+  }
+
   /** 窗口到不了 pos（被菜单栏/屏幕边缘顶住）时，把精灵在窗口内挪过去 —— 宠物因此能继续往屏幕顶部走；
    *  窗口跟得上时算出来的偏移正好等于余量，行为与上游完全一致。 */
   onActualBounds(b) {
@@ -235,19 +338,28 @@ class PetSprite {
     this.pos = { x: Math.round(px), y: Math.round(py) };
     if (this.bubble && this.bubble.classList.contains('is-on')) this.placeBubble();
     window.__dshPetDebug.dragPos = { x: this.pos.x, y: this.pos.y };
-    if (window.petBridge) {
-      window.petBridge.setBounds({
-        x: toScreen(this.pos.x - this.margin.l + VIEW.x),
-        y: toScreen(this.pos.y - this.margin.t + VIEW.y),
-        width: toScreen(this.size + this.margin.l + this.margin.r),
-        height: toScreen(this.winH + this.margin.t + this.margin.b),
-        size: toScreen(this.size),
-        bottomPad: toScreen(this.bottomPad),
-        // 精灵在窗口内的偏移（主进程命中判定 / 聊天面板定位用）
-        offX: toScreen(this.spriteOffset.x),
-        offY: toScreen(this.spriteOffset.y),
-      });
-    }
+    if (!window.petBridge) return;
+    const payload = {
+      x: toScreen(this.pos.x - this.margin.l + VIEW.x),
+      y: toScreen(this.pos.y - this.margin.t + VIEW.y),
+      width: toScreen(this.size + this.margin.l + this.margin.r),
+      height: toScreen(this.winH + this.margin.t + this.margin.b),
+      size: toScreen(this.size),
+      bottomPad: toScreen(this.bottomPad),
+      // 精灵在窗口内的偏移（主进程命中判定 / 聊天面板定位用）
+      offX: toScreen(this.spriteOffset.x),
+      offY: toScreen(this.spriteOffset.y),
+    };
+    // 位置没变就不要再发一条：rAF 是 60fps，动画素材只有 30fps，重复帧白占一条 IPC +
+    // 主进程一次 getContentBounds()（窗口服务器往返，实测约 1ms/次）。
+    // key 必须覆盖全部字段——漏掉哪个，那一项就再也传不出去了（聊天面板定位 / 命中区会偏）。
+    const key =
+      payload.x + ',' + payload.y + ',' + payload.width + ',' + payload.height + ',' +
+      payload.size + ',' + payload.bottomPad + ',' + payload.offX + ',' + payload.offY;
+    if (key === this._boundsKey) return;
+    this._boundsKey = key;
+    window.__dshPetDebug.boundsSent = (window.__dshPetDebug.boundsSent || 0) + 1;
+    window.petBridge.setBounds(payload);
   }
 
   // 角落/边距 → 窗口位置；拖拽后按会话内位置（比例）还原——**松手无任何边界夹取**，
@@ -295,6 +407,7 @@ class PetSprite {
    */
   relayout() {
     this.space = null;
+    this._boundsKey = null; // 显示器变了：哪怕算出来的位置没变也要重发一次，让主进程把窗口复位
     if (this.dragState.active || this.throwRef !== null) return;
     this.stopMove();
     const cx = this.pos.x + this.halfW;
@@ -319,6 +432,16 @@ class PetSprite {
   // 双缓冲切换（与浏览器同一套：前台 opacity 切换 + 降级视频清 handler 并停播，防残留 ended 雪崩）
   switchTo(next, nextOnce) {
     if (!next) return;
+    if (this.resting) {
+      this.resting = false;
+      window.__dshPetDebug.resting = false;
+    }
+    // 挂起（藏起来 / 锁屏）期间不加载：后台那只 <video> 带 autoplay，加载完会自己播起来，
+    // 在看不见的地方偷偷解码。调用方已经记下了 this.anim / this.once，resume() 会按它重新驱动。
+    if (this.suspended) {
+      this.pending = null;
+      return;
+    }
     const pending = this.pending;
     if (pending && pending.anim === next && pending.once === nextOnce) {
       // 防重命中（单动画点击时目标=当前动画，不重播）：仍消费 Q 弹标记，压当前前台视频，
@@ -358,6 +481,13 @@ class PetSprite {
       el.removeEventListener('loadeddata', onReady);
       window.clearTimeout(loadTimer);
       el.onerror = null;
+      // 挂起期间不接手前台切换：否则这次加载完成的 el.play() 会把刚停下的视频又播起来
+      // （隐藏/锁屏的省电就漏了）。放弃这次切换（释放 pending），resume() 会重新驱动当前动画。
+      if (this.suspended) {
+        el.pause(); // autoplay 会让它自己播起来
+        if (this.pending && this.pending.gen === gen) this.pending = null;
+        return;
+      }
       if (this.pending && this.pending.gen !== gen) return;
       const old = this.front === 0 ? this.videoA : this.videoB;
       el.classList.add('is-front');
@@ -423,6 +553,11 @@ class PetSprite {
     if (animations.turn.includes(this.anim)) {
       const next = this.facing === 'left' ? 'right' : 'left';
       this.facing = next; // 立即同步：翻转后的 pickNext 用新朝向过滤 noMirror
+    }
+    // 主人不在：不续下一段，停在这一帧歇着（见 setAway）
+    if (this.away) {
+      this.restAfterEnded();
+      return;
     }
     // 事件动画（余额 / 碎碎念 / 菜单点播的事件动作）与互动动画（拖拽 / 点击）播完：回 idle，
     // 不进随机链；气泡由定时器自动消失，与动画解耦
@@ -930,9 +1065,42 @@ class PetSprite {
       case 'play':
         this.playFromMenu(a.anim);
         break;
+      case 'live-config':
+        this.applyLiveConfig(a.config);
+        break;
       default:
         break;
     }
+  }
+
+  /**
+   * 就地套用「行为类」配置（主进程推来，见 main/pet-reload.js）。
+   *
+   * 这些字段渲染端都是**用到的当时**才读的，所以改设置不需要重建窗口：
+   *   weights          → 下一次挑动画时生效（自己走动 / 活跃度）
+   *   physics          → 下一次拖拽跟随 / 抛掷时生效（甩出去的力度）
+   *   confineToScreen  → 下一次抛掷时生效
+   *   pet.position     → 回到初始位置时生效（初始角落）
+   *   whisperEnabled / eventsRefreshSec / balanceEnabled → 碎碎念与余额的定时器
+   * 几何与身份（大小 / 名字 / 语言）不在这里，那些仍然走重建或 setName。
+   */
+  applyLiveConfig(c) {
+    if (!c || typeof c !== 'object') return;
+    const oldInterval = this.pet.eventsRefreshSec ? this.pet.eventsRefreshSec.whisper : undefined;
+    if (c.animationWeights) this.weights = c.animationWeights;
+    if (c.physics) this.physics = c.physics;
+    if (c.confineToScreen !== undefined) this.confineToScreen = c.confineToScreen === true;
+    if (c.position) this.pet.position = c.position;
+    if (c.eventsRefreshSec) this.pet.eventsRefreshSec = c.eventsRefreshSec;
+    if (c.balanceEnabled !== undefined) this.pet.balanceEnabled = c.balanceEnabled === true;
+    this.pet.whisperEnabled = c.whisperEnabled === true;
+    // 碎碎念的定时器按新设置重排：关掉就停表；周期变了也要重排（否则要等旧周期走完）
+    const newInterval = this.pet.eventsRefreshSec ? this.pet.eventsRefreshSec.whisper : undefined;
+    if (this.whisperLoopTimer !== null && (!this.pet.whisperEnabled || newInterval !== oldInterval)) {
+      window.clearTimeout(this.whisperLoopTimer);
+      this.whisperLoopTimer = null;
+    }
+    if (this.pet.whisperEnabled && this.whisperLoopTimer === null && !this.suspended) this.startWhisperLoop();
   }
 
   /** 聊天面板里她开始回话：播一段说话动画（气泡由面板显示，这里不弹） */

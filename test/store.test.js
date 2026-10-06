@@ -202,3 +202,21 @@ test('petConfig：不让走动 → move 权重 0；活跃度改待机权重；�
   assert.equal(cfg.physics.throwPower, 1.5);
   assert.equal(cfg.whisperPrompt, '你是一只猫');
 });
+
+// ---------------------------------------------------------------- petConfig 缓存
+test('petConfig：设置没变复用同一份成品（省掉每次深拷贝 15KB 包内配置）', () => {
+  const a = petConfig();
+  const b = petConfig();
+  assert.equal(a, b, '没改设置应命中缓存');
+});
+
+test('petConfig：设置一变就重建，缓存不会给出过期结果', () => {
+  const before = petConfig();
+  store.update({ pet: { size: 512 } });
+  const after = petConfig();
+  assert.notEqual(after, before);
+  assert.equal(after.main.pets[0].size, 512);
+  // 主屏余量 / 命中区跟着 size 走，改回来应回到原尺寸
+  store.update({ pet: { size: 420 } });
+  assert.equal(petConfig().main.pets[0].size, 420);
+});
