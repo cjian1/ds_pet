@@ -1,6 +1,15 @@
 > ds_pet 基于 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT）二次创作。
 > ds_pet is a remix of [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (MIT).
 
+## 1.1.1 更新 / What's new
+
+- 点她、拖她、右键她之后，焦点会自动还给你原来在用的应用，正在打字的窗口不会再丢光标。
+  Clicking, dragging or right-clicking her no longer steals focus from the app you were using.
+- 她身边的透明区域不再挡住下面应用的点击，只有点在她身上才算点她。
+  The transparent area around her no longer blocks clicks to the apps underneath; only her body is clickable.
+- 设置文件被写坏时不再启动失败；修正旧版设置迁移的一个问题。
+  A damaged settings file no longer stops the app from starting; fixed an issue when migrating old settings.
+
 ## 下载哪个？ / Which file?
 
 | 你的 Mac / Your Mac | 下载 / Download |
