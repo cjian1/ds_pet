@@ -1,14 +1,14 @@
 > ds_pet 基于 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT）二次创作。
 > ds_pet is a remix of [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (MIT).
 
-## 1.1.1 更新 / What's new
+## 1.2.0 更新 / What's new
 
-- 点她、拖她、右键她之后，焦点会自动还给你原来在用的应用，正在打字的窗口不会再丢光标。
-  Clicking, dragging or right-clicking her no longer steals focus from the app you were using.
-- 她身边的透明区域不再挡住下面应用的点击，只有点在她身上才算点她。
-  The transparent area around her no longer blocks clicks to the apps underneath; only her body is clickable.
-- 设置文件被写坏时不再启动失败；修正旧版设置迁移的一个问题。
-  A damaged settings file no longer stops the app from starting; fixed an issue when migrating old settings.
+- 新增一键更新：设置 › 关于 里「检查更新」→「一键更新」，下载、校验、安装、重启全自动，设置和聊天记录都保留。
+  One-click updates: Settings › About → Check for updates → Update now downloads, verifies, installs and restarts for you. Settings and chat history are kept.
+- 有新版本时她会提醒你，菜单栏图标和右键菜单里点「更新到 x.y.z」就能更新；自动检查可以在设置里关掉。
+  She'll tell you when a new version is out, and Update to x.y.z in the menu bar or her right-click menu installs it. Automatic checks can be turned off in Settings.
+- 从 1.1.1 或更早版本升级：这一次请手动下载安装，之后的版本就能一键更新了。
+  Coming from 1.1.1 or earlier? Install this version manually once; after that, updates take one click.
 
 ## 下载哪个？ / Which file?
 
