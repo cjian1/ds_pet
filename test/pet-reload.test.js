@@ -1,5 +1,6 @@
 'use strict';
 // 改设置要不要重建桌宠整窗：只有渲染端真会读到的字段变了才重建（重建 = 重载页面 + 重载所有视频）
+require('./helpers/electron-stub'); // store.js 会 require('electron')：CI 上不装依赖，必须用假的
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { needsPetWindowReload, INERT } = require('../desktop/main/pet-reload');
