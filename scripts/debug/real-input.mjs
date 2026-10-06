@@ -143,7 +143,7 @@ fs.writeFileSync(
     onboarded: true,
     pet: { size: 320, roam: false, liveliness: 'calm' },
     talk: { whisperEnabled: false, balanceEnabled: false },
-    app: { language: 'zh', shortcutEnabled: false, showInDock: false },
+    app: { language: 'zh', shortcutEnabled: false, showInDock: false, autoUpdate: false },
     position: { rx: 0.62, ry: 0.45 },
   }),
 );

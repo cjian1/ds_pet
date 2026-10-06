@@ -47,6 +47,16 @@ function sizeSubmenu(ctx) {
   return items;
 }
 
+/** 有新版本 / 正在更新时多出来的那一项（菜单栏和她身上的菜单共用）；没有就是 null */
+function updateItem(ctx) {
+  const u = ctx.update || {};
+  const { t } = ctx;
+  if (u.phase === 'available' && u.latest) return { label: t('tray.update', { v: u.latest.version }), click: () => ctx.startUpdate() };
+  if (u.phase === 'downloading') return { label: t('tray.updating', { p: Math.round((u.progress || 0) * 100) }), enabled: false };
+  if (u.phase === 'installing' || u.phase === 'restarting') return { label: t('set.update.installing'), enabled: false };
+  return null;
+}
+
 function shortcutLabel(settings) {
   return settings.app.shortcutEnabled ? settings.app.shortcut : undefined;
 }
@@ -79,6 +89,10 @@ function petMenu(ctx) {
       registerAccelerator: false,
       click: () => ctx.setVisible(false),
     },
+  );
+  const upd = updateItem(ctx);
+  if (upd) template.push(upd);
+  template.push(
     { label: t('menu.settings'), accelerator: 'Command+,', registerAccelerator: false, click: () => ctx.openSettings() },
     { label: t('menu.quitApp'), accelerator: 'Command+Q', registerAccelerator: false, click: () => ctx.quit() },
   );
@@ -88,8 +102,10 @@ function petMenu(ctx) {
 /** 菜单栏图标菜单 */
 function trayMenu(ctx) {
   const { t, settings: s, name, visible } = ctx;
+  const upd = updateItem(ctx);
   const template = [
     { label: name, enabled: false },
+    ...(upd ? [upd] : []),
     {
       label: visible ? t('menu.hide', { name }) : t('menu.show', { name }),
       accelerator: shortcutLabel(s),
@@ -123,6 +139,7 @@ function trayMenu(ctx) {
       click: () => ctx.toggleLogin(),
     },
     { type: 'separator' },
+    { label: t('tray.checkUpdate'), click: () => ctx.checkUpdate() },
     { label: t('menu.about'), click: () => ctx.about() },
     { label: t('menu.quit'), accelerator: 'Command+Q', registerAccelerator: false, click: () => ctx.quit() },
   );
@@ -177,4 +194,4 @@ function appMenu(ctx) {
   ]);
 }
 
-module.exports = { petMenu, trayMenu, appMenu, animationGroups };
+module.exports = { petMenu, trayMenu, appMenu, animationGroups, updateItem };

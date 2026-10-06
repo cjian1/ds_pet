@@ -260,6 +260,30 @@
           </div>
         </div>
 
+        <h2 data-i18n="set.update.title"></h2>
+        <div class="group">
+          <div class="row col">
+            <div class="row-head">
+              <div><div class="label" id="update-status"></div><div class="hint" id="update-hint"></div></div>
+              <div class="update-actions">
+                <button class="btn" id="btn-update-check" data-i18n="set.update.check"></button>
+                <button class="btn primary" id="btn-update-install" data-i18n="set.update.install" hidden></button>
+                <button class="btn" id="btn-update-cancel" data-i18n="set.update.cancel" hidden></button>
+              </div>
+            </div>
+            <div class="update-bar" id="update-bar" hidden><i id="update-bar-fill"></i></div>
+            <div class="update-notes" id="update-notes" hidden>
+              <div class="update-notes-title" data-i18n="set.update.notes"></div>
+              <ul id="update-notes-list"></ul>
+              <a href="#" id="link-release" data-i18n="set.update.page"></a>
+            </div>
+          </div>
+          <div class="row">
+            <div><div class="label" data-i18n="set.update.auto"></div><div class="hint" data-i18n="set.update.autoHint"></div></div>
+            <label class="switch"><input type="checkbox" id="update-auto" /><i></i></label>
+          </div>
+        </div>
+
         <h2 data-i18n="set.about.creditTitle"></h2>
         <div class="group credit">
           <div class="row col">

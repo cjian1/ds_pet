@@ -695,6 +695,49 @@ select.wide {
   margin-top: 18px;
 }
 
+/* 一键更新 */
+.update-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+.update-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.update-bar i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.update-notes {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  font-size: 12px;
+}
+.update-notes-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.update-notes ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--dim);
+  line-height: 1.55;
+}
+.update-notes a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.update-notes a:hover {
+  text-decoration: underline;
+}
+
 /* 出处 */
 .credit-head {
   display: flex;

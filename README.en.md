@@ -92,6 +92,7 @@ Right-click her → **Settings…**, or click the menu bar whale → **Settings�
 - **Pet**: name, size, start position, walking around, liveliness, fling strength, random chatter (frequency and stickers), balance reports
 - **AI Chat**: provider, API key, base URL, model (pick from the list or type one), thinking level, how many messages she remembers, clear chat history, personality
 - **General**: language (match system / 简体中文 / English), open at login, Dock icon, show over full-screen apps, show/hide shortcut
+- **About**: version, check for updates / one-click update, check for updates automatically
 
 ## FAQ
 
@@ -106,6 +107,14 @@ Only her body catches clicks; the transparent area around her passes clicks thro
 
 The key is stored only on your Mac (<code>~/Library/Application Support/ds_pet/settings.json</code>, readable only by your user account) and is only ever sent to the provider you chose. The app has no analytics or telemetry.<br>
 Random chatter happens once every 15 minutes by default, and stops while you're away from your computer for more than 10 minutes. To use less credit, lower the frequency or turn chatter off in Settings.
+</details>
+
+<details>
+<summary><b>How do I update to a new version?</b></summary>
+
+Settings › About → **Check for updates** → **Update now**. When a new version is out she'll also tell you, and the menu bar whale and her right-click menu get a **⬆︎ Update to x.y.z** item: one click does it.<br>
+It downloads the installer for your Mac's chip from GitHub (about 200 MB), verifies it, replaces the app and restarts. Your settings and chat history are kept. ds_pet has to be in your Applications folder and you need permission to replace it; if not, Settings tells you why, and you can download it manually from <a href="https://github.com/cjian1/ds_pet/releases/latest">Releases</a>.<br>
+"Check for updates automatically" only asks GitHub whether there's a new version. It just lets you know and never installs anything by itself; you can turn it off in Settings › About.
 </details>
 
 <details>
@@ -168,6 +177,7 @@ Tests:
 npm run check             # syntax check
 npm test                  # unit tests (settings, AI provider requests and streaming, local service, click-through, strings and assets)
 npm run test:real-input   # drive the pet with the real system mouse (click, click-through, drag, right-click, image drop, fling)
+npm run test:update       # one-click update end to end: build, then go old version → download → replace → restart as the new one in a temp folder
 ```
 
 `npm test` doesn't start Electron; GitHub Actions runs it before building a release. `test:real-input` takes over the mouse for about
@@ -201,8 +211,9 @@ test/                    Unit tests (node --test, no Electron needed)
 ### Releasing a new version
 
 1. Bump `version` in `desktop/package.json` (for example `1.0.1`).
-2. Commit, then tag and push: `git tag v1.0.1 && git push origin main v1.0.1`.
-3. GitHub Actions builds the Apple silicon and Intel versions and publishes them to Releases.
+2. Update the "更新 / What's new" section at the top of `.github/release-notes.md` (one Chinese and one English line per item; the one-click update in Settings shows this section).
+3. Commit, then tag and push: `git tag v1.0.1 && git push origin main v1.0.1`.
+4. GitHub Actions builds the Apple silicon and Intel versions and publishes them to Releases. Installed copies offer **Update now** in Settings › About and in the menus.
 
 ## Credits & license
 

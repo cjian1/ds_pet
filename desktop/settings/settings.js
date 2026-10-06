@@ -143,6 +143,93 @@ function render() {
 
   // 关于
   $('about-version').textContent = tr('set.about.version', { v: m.version, e: m.electron });
+  $('update-auto').checked = s.app.autoUpdate;
+}
+
+// ---------------------------------------------------------------- 一键更新
+let upd = null;
+
+function clock(ts) {
+  return new Intl.DateTimeFormat(LANG === 'en' ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(ts || Date.now()));
+}
+
+function renderUpdate() {
+  if (!upd) return;
+  const st = upd;
+  const rel = st.latest;
+  const hint = $('update-hint');
+  hint.classList.remove('warn');
+  let label;
+  let sub = '';
+  switch (st.phase) {
+    case 'checking':
+      label = tr('set.update.checking');
+      sub = tr('set.update.idle', { v: st.current });
+      break;
+    case 'latest':
+      label = tr('set.update.latest');
+      sub = tr('set.update.latestHint', { v: st.current, time: clock(st.checkedAt) });
+      break;
+    case 'available': {
+      label = tr('set.update.available', { v: rel.version });
+      const mb = Math.round(((rel.asset && rel.asset.size) || 0) / 1e6);
+      sub = st.blocker ? tr('update.block.' + st.blocker, { path: st.appPath || '' }) : tr('set.update.availableHint', { cur: st.current, mb: mb || '?' });
+      if (st.blocker) hint.classList.add('warn');
+      break;
+    }
+    case 'downloading':
+      label = tr('set.update.downloading', { p: Math.round((st.progress || 0) * 100) });
+      sub = tr('set.update.downloadingHint');
+      break;
+    case 'installing':
+      label = tr('set.update.installing');
+      break;
+    case 'restarting':
+      label = tr('set.update.restarting');
+      break;
+    case 'error':
+      label = tr('set.update.error');
+      sub = st.error;
+      hint.classList.add('warn');
+      break;
+    default:
+      label = tr('set.update.idle', { v: st.current });
+      sub = tr('set.update.idleHint');
+  }
+  $('update-status').textContent = label;
+  hint.textContent = sub;
+
+  const working = ['downloading', 'installing', 'restarting'].includes(st.phase);
+  const canInstall = !!rel && (st.phase === 'available' || st.phase === 'error');
+  const install = $('btn-update-install');
+  install.hidden = !canInstall;
+  install.disabled = !!st.blocker;
+  const check = $('btn-update-check');
+  check.hidden = canInstall || working;
+  check.disabled = st.phase === 'checking';
+  check.textContent = tr(st.phase === 'checking' ? 'set.update.checking' : 'set.update.check');
+  $('btn-update-cancel').hidden = st.phase !== 'downloading';
+  $('update-bar').hidden = !working;
+  $('update-bar-fill').style.width = Math.round((st.phase === 'downloading' ? st.progress || 0 : 1) * 100) + '%';
+
+  const lines = (rel && rel.highlights) || [];
+  $('update-notes').hidden = !rel;
+  const list = $('update-notes-list');
+  list.innerHTML = '';
+  for (const text of lines) {
+    const li = document.createElement('li');
+    li.textContent = text;
+    list.appendChild(li);
+  }
+  list.hidden = !lines.length;
+}
+
+async function setUpdate(promise) {
+  const st = await promise;
+  if (st) {
+    upd = st;
+    renderUpdate();
+  }
 }
 
 function currentEfforts() {
@@ -517,6 +604,18 @@ $('link-upstream').addEventListener('click', (e) => {
   api.openLink('upstream');
 });
 $('language').addEventListener('change', (e) => void set({ app: { language: e.target.value } }));
+$('update-auto').addEventListener('change', (e) => void set({ app: { autoUpdate: e.target.checked } }));
+$('btn-update-check').addEventListener('click', () => void setUpdate(api.checkUpdate()));
+$('btn-update-install').addEventListener('click', () => void setUpdate(api.installUpdate()));
+$('btn-update-cancel').addEventListener('click', () => api.cancelUpdate());
+$('link-release').addEventListener('click', (e) => {
+  e.preventDefault();
+  api.openLink('release');
+});
+api.onUpdate((st) => {
+  upd = st;
+  renderUpdate();
+});
 
 // ---------------------------------------------------------------- 启动
 api.onChanged((v) => {
@@ -561,4 +660,5 @@ api.get().then((v) => {
   preview.src = previewIdle;
   render();
   showTab(location.hash ? location.hash.slice(1) : v.hasKey ? 'pet' : 'ai');
+  void setUpdate(api.updateState());
 });

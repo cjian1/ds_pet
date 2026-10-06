@@ -89,6 +89,7 @@
 - **桌宠**：名字、大小、初始位置、自己走动、活跃程度、甩出去的力度、自动碎碎念（频率/配图）、定时报告余额
 - **AI 对话**：服务商、API Key、接口地址、模型（可从列表选，也可直接输入）、思考深度、记住几轮对话、清空聊天记录、人设
 - **通用**：语言（跟随系统 / 简体中文 / English）、登录时自动打开、程序坞图标、全屏应用上方是否显示、显示/隐藏快捷键
+- **关于**：版本、检查更新 / 一键更新、自动检查更新
 
 ## 常见问题
 
@@ -103,6 +104,14 @@
 
 Key 只保存在你自己电脑上（<code>~/Library/Application Support/ds_pet/settings.json</code>，仅你的账户可读），只会发给你选的那家服务商的接口地址。应用没有任何统计或上报。<br>
 自动碎碎念默认每 15 分钟一句，你离开电脑 10 分钟以上就不说了；嫌费额度可以在设置里调低频率或关掉。
+</details>
+
+<details>
+<summary><b>怎么更新到新版本？</b></summary>
+
+设置 › 关于 →「检查更新」→「一键更新」。有新版本时她也会提醒你，菜单栏小鲸鱼和她的右键菜单里会多出「⬆︎ 更新到 x.y.z」，点一下就行。<br>
+会从 GitHub 下载适合你电脑芯片的安装包（约 200 MB），校验无误后自动替换并重启，设置和聊天记录都会保留。需要 ds_pet 放在「应用程序」文件夹里、并且你有权限替换它；不满足时设置页会说明原因，到 <a href="https://github.com/cjian1/ds_pet/releases/latest">Releases</a> 手动下载安装即可。<br>
+「自动检查更新」只会访问 GitHub 看有没有新版本，只提醒、不会自己装；不想联网检查可以在设置 › 关于 里关掉。
 </details>
 
 <details>
@@ -171,6 +180,7 @@ npm run install-app   # 打包并直接装进「应用程序」
 npm run check             # 语法检查
 npm test                  # 单元测试（设置规整、各家 AI 接口的请求与流式解析、本地服务、点击穿透判定、中英文案与素材）
 npm run test:real-input   # 用真实的系统鼠标把桌宠交互走一遍（点击、穿透、拖拽、右键、拖图、甩出去）
+npm run test:update       # 一键更新端到端：打包后在临时目录里走一遍「旧版本 → 下载 → 替换 → 重启成新版本」
 ```
 
 `npm test` 不需要启动 Electron，推送版本 tag 时 GitHub Actions 会先跑它再打包。`test:real-input` 会接管鼠标半分钟左右，
@@ -203,8 +213,9 @@ test/                    单元测试（node --test，不需要 Electron）
 ### 发布新版本
 
 1. 改 `desktop/package.json` 里的 `version`（比如 `1.0.1`）；
-2. 提交后打 tag 并推送：`git tag v1.0.1 && git push origin main v1.0.1`；
-3. GitHub Actions 会自动打包 Apple 芯片版和 Intel 版，并发布到 Releases。
+2. 把 `.github/release-notes.md` 最上面「更新 / What's new」那一段改成这一版的内容（中英各一行；设置页的一键更新会显示这一段）；
+3. 提交后打 tag 并推送：`git tag v1.0.1 && git push origin main v1.0.1`；
+4. GitHub Actions 会自动打包 Apple 芯片版和 Intel 版，并发布到 Releases。已安装的用户会在设置 › 关于 或菜单里看到「一键更新」。
 
 ## 致谢与许可
 

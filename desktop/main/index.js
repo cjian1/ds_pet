@@ -46,6 +46,7 @@ const settingsWindow = require('./settings-window');
 const { migrate } = require('./migrate');
 const Providers = require('./providers');
 const { createFocusReturn, macSystem } = require('./focus-return');
+const Updater = require('./updater');
 
 const RES = path.join(__dirname, '..', 'resources');
 
@@ -56,7 +57,17 @@ let greeted = false;
 const LINKS = {
   upstream: 'https://github.com/PC2005-cloud/dsh-pet',
   repo: 'https://github.com/cjian1/ds_pet',
+  release: Updater.RELEASES_PAGE,
 };
+/** 一键更新（见 updater.js）；app ready 之后创建 */
+let updater = null;
+/** 上次更新的结果（新版本启动时读到），她打招呼时说出来 */
+let updateNote = null;
+/** 她已经提醒过的新版本（同一个版本只提醒一次） */
+let announcedVersion = '';
+/** 更新是不是从菜单（菜单栏 / 右键）点的：是的话进度和失败由她来说 */
+let updateFromMenu = false;
+let updateTimers = [];
 const t = (key, vars) => store.t(key, vars);
 
 // ---------------------------------------------------------------- 动作
@@ -85,6 +96,12 @@ function ctx() {
     openSettings: (tab) => settingsWindow.open(tab),
     about,
     quit: () => app.quit(),
+    update: updateState(),
+    startUpdate: () => startUpdate(true),
+    checkUpdate: () => {
+      settingsWindow.open('about');
+      if (updater) void updater.check({ manual: true });
+    },
   };
 }
 
@@ -191,7 +208,52 @@ function applyLoginItem(on) {
 function refreshTray() {
   if (!tray) return;
   const s = store.get();
-  tray.setToolTip(APP_NAME + (s.app.visible ? '' : t('tray.hidden')) + (store.hasApiKey() ? '' : t('tray.noKeyTip')));
+  const updating = ['downloading', 'installing', 'restarting'].includes(updateState().phase);
+  tray.setToolTip(
+    APP_NAME +
+      (s.app.visible ? '' : t('tray.hidden')) +
+      (store.hasApiKey() ? '' : t('tray.noKeyTip')) +
+      (updating ? t('tray.updatingTip') : ''),
+  );
+}
+
+// ---------------------------------------------------------------- 一键更新
+function updateState() {
+  return updater ? updater.get() : { phase: 'idle', current: app.getVersion(), latest: null, progress: 0, error: '', blocker: null };
+}
+
+function say(text) {
+  if (store.get().app.visible) petWindow.send('pet:action', { type: 'say', text });
+}
+
+function onUpdateState(st) {
+  settingsWindow.send('settings:update', st);
+  refreshTray();
+  // 自动检查发现新版本：她提醒一句（设置窗口开着的话页面上已经看得到，就不说了）
+  if (st.phase === 'available' && st.latest && st.latest.version !== announcedVersion) {
+    announcedVersion = st.latest.version;
+    if (!settingsWindow.isOpen()) say(t('update.petFound', { v: st.latest.version }));
+  }
+  if (st.phase === 'error' && updateFromMenu) {
+    updateFromMenu = false;
+    say(t('update.petFailed', { msg: st.error }));
+  }
+}
+
+function startUpdate(fromMenu) {
+  if (!updater) return updateState();
+  updateFromMenu = !!fromMenu;
+  if (fromMenu && !updateState().blocker) say(t('update.petDownloading'));
+  return updater.install();
+}
+
+/** 启动 15 秒后查一次，之后每 6 小时一次（关掉「自动检查更新」就都不查） */
+function scheduleUpdateChecks() {
+  for (const id of updateTimers) clearTimeout(id);
+  updateTimers = [];
+  if (!updater || !store.get().app.autoUpdate) return;
+  updateTimers.push(setTimeout(() => void updater.check(), 15000));
+  updateTimers.push(setInterval(() => void updater.check(), 6 * 3600 * 1000));
 }
 
 function createTray() {
@@ -218,6 +280,13 @@ function onPetReady() {
   if (greeted) return;
   greeted = true;
   const s = store.get();
+  if (updateNote) {
+    // 刚更新完：说说结果，代替平常的招呼
+    const note = updateNote;
+    updateNote = null;
+    setTimeout(() => say(note.ok ? t('update.done', { v: app.getVersion() }) : t('update.failed', { v: app.getVersion() })), 1500);
+    return;
+  }
   if (!s.onboarded) {
     store.update({ onboarded: true });
     setTimeout(() => {
@@ -427,6 +496,10 @@ function setupSettingsIpc() {
     const target = key === 'providerKey' ? Providers.info(store.get().ai.provider).keyUrl : LINKS[key];
     if (target) shell.openExternal(target);
   });
+  ipcMain.handle('settings:update-get', () => updateState());
+  ipcMain.handle('settings:update-check', () => (updater ? updater.check({ manual: true }) : updateState()));
+  ipcMain.handle('settings:update-install', () => startUpdate(false));
+  ipcMain.on('settings:update-cancel', () => updater && updater.cancel());
   ipcMain.on('settings:home', () => home());
   ipcMain.on('settings:say', () => ctx().whisper());
 }
@@ -462,6 +535,7 @@ function onSettingsChange(next, prev) {
     shortcutOk = registerShortcut();
   }
   if (next.app.showInDock !== prev.app.showInDock) applyDock();
+  if (next.app.autoUpdate !== prev.app.autoUpdate) scheduleUpdateChecks();
   if (!langChanged && (next.pet.name !== prev.pet.name || keyChanged)) {
     chatWindow.send('chat:refresh', chatState());
   }
@@ -513,6 +587,19 @@ if (!app.requestSingleInstanceLock()) {
     lastAiState = aiState();
     store.on('change', onSettingsChange);
 
+    updater = Updater.createUpdater({
+      current: app.getVersion(),
+      packaged: app.isPackaged,
+      exePath: app.getPath('exe'),
+      dataDir: dataDir(),
+      t,
+      lang: () => store.lang(),
+      onState: onUpdateState,
+      quit: () => app.quit(),
+    });
+    updateNote = updater.takeMarker();
+    void updater.cleanup();
+
     applyAboutPanel();
     if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(RES, 'icon.png'));
 
@@ -544,8 +631,9 @@ if (!app.requestSingleInstanceLock()) {
 
     if (store.get().app.visible) petWindow.create();
     shortcutOk = registerShortcut();
+    scheduleUpdateChecks();
     // 开发态调试把手（node --inspect 连上主进程后可直接调用）
-    if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat, petConfig, focusReturn };
+    if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat, petConfig, focusReturn, updater };
 
     // 登录项与设置对齐（用户可能在系统设置里手动关过）
     if (app.isPackaged) {

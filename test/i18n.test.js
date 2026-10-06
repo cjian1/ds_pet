@@ -40,7 +40,7 @@ test('代码里写死的文案键都存在', () => {
   for (const f of scripts) {
     for (const m of fs.readFileSync(f, 'utf8').matchAll(/'([a-zA-Z]+\.[\w.]*\w)'/g)) {
       const key = m[1];
-      if (!namespaces.has(key.split('.')[0]) || /\.(js|png|html|jsonc?|css|webm|ttf)$/.test(key)) continue;
+      if (!namespaces.has(key.split('.')[0]) || /\.(js|png|html|jsonc?|css|webm|ttf|sh|log|dmg|plist|txt)$/.test(key)) continue;
       if (!I18n.has(key)) missing.push(path.relative(DESKTOP, f) + ': ' + key);
     }
   }

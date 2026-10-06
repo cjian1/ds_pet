@@ -75,6 +75,8 @@ const DEFAULTS = {
     shortcut: 'Control+Alt+P',
     visible: true,
     overFullscreen: true,
+    /** 自动检查 GitHub 上有没有新版本（只提醒，不会自己装） */
+    autoUpdate: true,
   },
   /** 桌宠中心点在桌面外接矩形里的比例位置（null = 用 corner 角落） */
   position: null,
@@ -164,6 +166,7 @@ function sanitize(raw) {
 
   const a = s.app;
   for (const k of ['openAtLogin', 'showInDock', 'shortcutEnabled', 'visible', 'overFullscreen']) a[k] = a[k] === true;
+  a.autoUpdate = a.autoUpdate !== false;
   a.shortcut = String(a.shortcut || DEFAULTS.app.shortcut);
   if (!LANGUAGES.includes(a.language)) a.language = 'auto';
 

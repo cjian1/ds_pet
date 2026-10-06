@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld('settingsApi', {
   openLink: (key) => ipcRenderer.send('settings:open-link', key),
   home: () => ipcRenderer.send('settings:home'),
   say: () => ipcRenderer.send('settings:say'),
+  updateState: () => ipcRenderer.invoke('settings:update-get'),
+  checkUpdate: () => ipcRenderer.invoke('settings:update-check'),
+  installUpdate: () => ipcRenderer.invoke('settings:update-install'),
+  cancelUpdate: () => ipcRenderer.send('settings:update-cancel'),
+  onUpdate: (cb) => ipcRenderer.on('settings:update', (_e, st) => cb(st)),
   onChanged: (cb) => ipcRenderer.on('settings:changed', (_e, view) => cb(view)),
   onTab: (cb) => ipcRenderer.on('settings:tab', (_e, tab) => cb(tab)),
 });
