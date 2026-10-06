@@ -111,7 +111,7 @@
             <div class="label" data-i18n="set.whisperImage"></div>
             <label class="switch"><input type="checkbox" id="whisper-image" /><i></i></label>
           </div>
-          <div class="row">
+          <div class="row" id="row-balance">
             <div><div class="label" data-i18n="set.balance"></div><div class="hint" data-i18n="set.balanceHint"></div></div>
             <label class="switch"><input type="checkbox" id="balance" /><i></i></label>
           </div>
@@ -122,6 +122,16 @@
       <section data-page="ai" class="page">
         <h1 data-i18n="set.nav.ai"></h1>
         <div class="group">
+          <div class="row">
+            <div><div class="label" data-i18n="set.provider"></div><div class="hint" data-i18n="set.providerHint"></div></div>
+            <select id="provider" class="wide"></select>
+          </div>
+          <div class="row" id="row-format" hidden>
+            <div><div class="label" data-i18n="set.apiFormat"></div><div class="hint" data-i18n="set.apiFormatHint"></div></div>
+            <div class="seg" id="api-format">
+              <button data-v="openai" data-i18n="set.apiFormat.openai"></button><button data-v="anthropic" data-i18n="set.apiFormat.anthropic"></button>
+            </div>
+          </div>
           <div class="row col">
             <div class="row-head">
               <div>
@@ -136,9 +146,13 @@
               <button class="btn primary" id="btn-save-key" data-i18n="set.save"></button>
             </div>
             <div class="key-foot">
-              <a href="#" id="link-keys" data-i18n="set.getKey"></a>
+              <a href="#" id="link-keys"></a>
               <span id="key-result" class="result"></span>
             </div>
+          </div>
+          <div class="row col">
+            <div><div class="label" data-i18n="set.baseUrl"></div><div class="hint" id="base-url-hint"></div></div>
+            <input id="base-url" class="text mono" type="url" spellcheck="false" autocomplete="off" />
           </div>
         </div>
 
@@ -146,8 +160,14 @@
         <div class="group">
           <div class="row col">
             <div class="models" id="models"></div>
+            <div class="model-input-row">
+              <input id="model-input" class="text mono" list="model-list" spellcheck="false" autocomplete="off" />
+              <datalist id="model-list"></datalist>
+              <button class="btn" id="btn-refresh-models" data-i18n="set.modelsRefresh"></button>
+            </div>
+            <div class="hint" id="model-hint" data-i18n="set.modelInputHint"></div>
           </div>
-          <div class="row">
+          <div class="row" id="row-effort">
             <div><div class="label" data-i18n="set.effort"></div><div class="hint" id="effort-hint" data-i18n="set.effortHint.low"></div></div>
             <div class="seg" id="effort">
               <button data-v="low" data-i18n="set.effort.low"></button><button data-v="high" data-i18n="set.effort.high"></button><button data-v="max" data-i18n="set.effort.max"></button>

@@ -2,7 +2,7 @@
 /**
  * 设置与数据：~/Library/Application Support/ds_pet/
  *
- *   settings.json   用户设置（含 API Key，权限 600）
+ *   settings.json   用户设置（含各服务商的 API Key，权限 600）
  *   memory.json     聊天记录（结构与 dsh-pet 上游一致：{main: {main: {messages: [...]}}}）
  *   uploads/        主人递给她的图片（按内容哈希命名，天然去重）
  *
@@ -11,6 +11,7 @@
 const { app } = require('electron');
 const { EventEmitter } = require('node:events');
 const I18n = require('../i18n/i18n.js');
+const Providers = require('./providers');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -57,8 +58,10 @@ const DEFAULTS = {
     balanceEnabled: true,
   },
   ai: {
-    apiKey: '',
-    model: 'deepseek-flash',
+    /** 当前用哪家（见 providers.js） */
+    provider: 'deepseek',
+    /** 每家各自的 {apiKey, baseUrl, model, type}：切换服务商不会丢掉之前填的 */
+    providers: {},
     effort: 'low',
     memoryRounds: 8,
     persona: '',
@@ -127,8 +130,29 @@ function sanitize(raw) {
   talk.whisperIntervalSec = clamp(Math.round(Number(talk.whisperIntervalSec) || 900), 60, 4 * 3600);
 
   const ai = s.ai;
-  ai.apiKey = String(ai.apiKey || '').trim();
-  ai.model = String(ai.model || DEFAULTS.ai.model).trim();
+  // 旧版只支持 DeepSeek：ai.apiKey / ai.model 搬进 providers.deepseek
+  const legacy = { apiKey: ai.apiKey, model: ai.model };
+  delete ai.apiKey;
+  delete ai.model;
+  const list = isPlainObject(ai.providers) ? ai.providers : {};
+  if (legacy.apiKey || legacy.model) {
+    list.deepseek = Object.assign({}, list.deepseek);
+    if (legacy.apiKey && !list.deepseek.apiKey) list.deepseek.apiKey = legacy.apiKey;
+    if (legacy.model && !list.deepseek.model) list.deepseek.model = legacy.model;
+  }
+  ai.providers = {};
+  for (const id of Providers.PROVIDER_IDS) {
+    const c = isPlainObject(list[id]) ? list[id] : null;
+    if (!c) continue;
+    const entry = {
+      apiKey: String(c.apiKey || '').trim().slice(0, 500),
+      baseUrl: Providers.cleanBaseUrl(c.baseUrl),
+      model: String(c.model || '').trim().slice(0, 200),
+    };
+    if (Providers.info(id).custom) entry.type = Providers.API_TYPES.includes(c.type) ? c.type : 'openai';
+    ai.providers[id] = entry;
+  }
+  if (!Providers.PROVIDER_IDS.includes(ai.provider)) ai.provider = DEFAULTS.ai.provider;
   if (!EFFORTS.includes(ai.effort)) ai.effort = DEFAULTS.ai.effort;
   ai.memoryRounds = clamp(Math.round(Number(ai.memoryRounds) || 8), 1, 30);
   ai.persona = String(ai.persona || '').slice(0, 2000);
@@ -213,12 +237,39 @@ class Store extends EventEmitter {
     return next;
   }
 
+  /**
+   * 某个服务商的完整配置（用户填的优先，没填用默认）：
+   * {id, type, name, baseUrl, apiKey, model, effort, balance, modalities, noKey, custom, keyFromEnv}
+   */
+  provider(id = this.data.ai.provider) {
+    const p = Providers.info(id);
+    const c = this.data.ai.providers[id] || {};
+    const envKey = id === 'deepseek' ? String(process.env.DEEPSEEK_API_KEY || '').trim() : '';
+    return {
+      id,
+      type: p.custom ? c.type || 'openai' : p.type,
+      name: Providers.displayName(id, this.lang()),
+      baseUrl: c.baseUrl || p.baseUrl,
+      apiKey: envKey || c.apiKey || '',
+      model: c.model || p.model,
+      effort: p.effort || null,
+      balance: !!p.balance,
+      modalities: !!p.modalities,
+      noKey: !!p.noKey,
+      custom: !!p.custom,
+      keyCheck: p.keyCheck || '',
+      keyFromEnv: !!envKey,
+    };
+  }
+
+  /** AI 能不能用：有接口地址、有模型，需要 Key 的有 Key（自定义接口 Key 可选） */
   hasApiKey() {
-    return !!(process.env.DEEPSEEK_API_KEY || this.data.ai.apiKey);
+    const p = this.provider();
+    return !!(p.baseUrl && p.model && (p.apiKey || p.noKey || p.custom));
   }
 
   apiKey() {
-    return (process.env.DEEPSEEK_API_KEY || this.data.ai.apiKey || '').trim();
+    return this.provider().apiKey;
   }
 
   /** 实际使用的界面语言：zh / en（auto 时看系统首选语言，中文系统用中文，其余用英文） */
@@ -271,7 +322,7 @@ function petConfig(s = store.get()) {
       id: 'main',
       name: s.pet.name || store.t('pet.defaultName'),
       size: s.pet.size,
-      balanceEnabled: s.talk.balanceEnabled && hasKey,
+      balanceEnabled: s.talk.balanceEnabled && hasKey && store.provider().balance,
       whisperEnabled: s.talk.whisperEnabled && hasKey,
       workStatusEnabled: false,
       display: 'desktop',

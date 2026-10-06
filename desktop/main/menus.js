@@ -62,8 +62,9 @@ function petMenu(ctx) {
     { label: t('menu.chatWith', { name }), click: () => ctx.openChat() },
     { label: t('menu.say'), enabled: hasKey, click: () => ctx.whisper() },
     { label: t('menu.showImage'), enabled: hasKey, click: () => ctx.pickImage() },
-    { label: t('menu.balance'), enabled: hasKey, click: () => ctx.balance() },
   ];
+  // 查余额只有部分服务商支持（目前是 DeepSeek）
+  if (ctx.canBalance) template.push({ label: t('menu.balance'), click: () => ctx.balance() });
   if (!hasKey) template.push({ label: t('menu.needKey'), click: () => ctx.openSettings('ai') });
   template.push(
     { type: 'separator' },

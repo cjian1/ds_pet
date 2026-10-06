@@ -134,6 +134,8 @@ main {
   overflow-y: auto;
   padding: 0 28px 32px;
   border-left: 1px solid var(--line);
+  /* 模型列表异步加载出来时别把页面往下顶 */
+  overflow-anchor: none;
 }
 main::-webkit-scrollbar {
   width: 10px;
@@ -496,6 +498,18 @@ input[type='range']::-webkit-slider-thumb {
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
   line-height: 26px;
+}
+
+/* 服务商 / 模型 */
+select.wide {
+  min-width: 210px;
+}
+.model-input-row {
+  display: flex;
+  gap: 8px;
+}
+.hint.warn {
+  color: var(--danger);
 }
 
 /* API Key */

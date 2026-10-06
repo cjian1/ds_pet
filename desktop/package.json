@@ -1,7 +1,7 @@
 {
   "name": "ds_pet",
   "productName": "ds_pet",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A desktop pet for macOS, remixed from PC2005-cloud/dsh-pet. 住在 macOS 桌面上的蓝毛小女仆（基于 dsh-pet 二次创作）",
   "main": "main/index.js",
   "private": true,

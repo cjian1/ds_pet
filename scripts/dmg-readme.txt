@@ -22,8 +22,8 @@ ds_pet is a remix of the open-source project dsh-pet by PC2005-cloud (MIT).
       xattr -dr com.apple.quarantine /Applications/ds_pet.app
 
 打开后：桌面上会出现她，菜单栏多一个小鲸鱼图标。第一次会弹出设置窗口，
-填上 DeepSeek API Key（https://platform.deepseek.com/api_keys）就能聊天；
-不填也能拖她、甩她、点播动作。
+选一家 AI 服务（默认 DeepSeek，也支持 OpenAI、Claude、Gemini、Kimi、智谱、通义、
+Ollama 本地模型等）、填上 API Key 就能聊天；不填也能拖她、甩她、点播动作。
 
 
 【English】
@@ -41,6 +41,7 @@ asks once. Either of these works:
       xattr -dr com.apple.quarantine /Applications/ds_pet.app
 
 After that she appears on your desktop and a little whale shows up in the menu bar.
-The first time, Settings opens so you can add a DeepSeek API key
-(https://platform.deepseek.com/api_keys) to chat with her. Without a key you can still
-drag her, fling her and play her animations.
+The first time, Settings opens so you can pick an AI provider (DeepSeek by default;
+OpenAI, Claude, Gemini, Kimi, Qwen, local Ollama models and more are supported) and add
+an API key to chat with her. Without a key you can still drag her, fling her and play
+her animations.

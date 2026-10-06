@@ -44,14 +44,13 @@ const petWindow = require('./pet-window');
 const chatWindow = require('./chat-window');
 const settingsWindow = require('./settings-window');
 const { migrate } = require('./migrate');
+const Providers = require('./providers');
 
 const RES = path.join(__dirname, '..', 'resources');
 
 let tray = null;
 let greeted = false;
 const LINKS = {
-  apiKeys: 'https://platform.deepseek.com/api_keys',
-  usage: 'https://platform.deepseek.com/usage',
   upstream: 'https://github.com/PC2005-cloud/dsh-pet',
   repo: 'https://github.com/cjian1/ds_pet',
 };
@@ -66,6 +65,7 @@ function ctx() {
     t,
     name: store.petName(),
     hasKey: store.hasApiKey(),
+    canBalance: store.hasApiKey() && store.provider().balance,
     visible: s.app.visible,
     animations: petConfig(s).main.animations,
     openChat,
@@ -240,7 +240,8 @@ function chatState() {
     name: store.petName(),
     lang: store.lang(),
     hasKey: store.hasApiKey(),
-    model: s.ai.model,
+    model: store.provider().model,
+    provider: store.provider().name,
     api: service.API,
     history: llm
       .history('main')
@@ -305,13 +306,41 @@ function keyHint(key) {
   return key.length > 10 ? key.slice(0, 5) + '••••' + key.slice(-4) : '••••';
 }
 
+/** 某家服务商在设置页里要显示的东西（不含 Key 原文，只给打码提示） */
+function providerView(id) {
+  const p = store.provider(id);
+  const def = Providers.info(id);
+  const saved = store.get().ai.providers[id] || {};
+  return {
+    id,
+    name: p.name,
+    type: p.type,
+    baseUrl: saved.baseUrl || '',
+    defaultBaseUrl: def.baseUrl,
+    model: p.model,
+    defaultModel: def.model,
+    hasKey: !!p.apiKey,
+    keyHint: keyHint(p.apiKey),
+    keyFromEnv: p.keyFromEnv,
+    noKey: p.noKey,
+    custom: p.custom,
+    effort: !!p.effort,
+    balance: p.balance,
+    keyUrl: !!def.keyUrl,
+  };
+}
+
 function settingsView() {
   const s = store.get();
+  const ai = Object.assign({}, s.ai);
+  delete ai.providers; // Key 原文不出主进程
   return {
-    settings: Object.assign({}, s, { ai: Object.assign({}, s.ai, { apiKey: undefined }) }),
+    settings: Object.assign({}, s, { ai }),
     hasKey: store.hasApiKey(),
     keyHint: keyHint(store.apiKey()),
-    keyFromEnv: !!process.env.DEEPSEEK_API_KEY,
+    keyFromEnv: store.provider().keyFromEnv,
+    provider: providerView(s.ai.provider),
+    providers: Providers.PROVIDER_IDS.map((id) => ({ id, name: Providers.displayName(id, store.lang()) })),
     api: service.API,
     lang: store.lang(),
     petName: store.petName(),
@@ -352,16 +381,21 @@ function setupSettingsIpc() {
     return settingsView();
   });
 
-  ipcMain.handle('settings:test-key', async (_e, key) => {
-    const k = String(key || '').trim() || store.apiKey();
-    if (!k) return { ok: false, message: t('err.enterKey') };
+  // 测试一套配置（可以是还没保存的 Key / 地址）：通了返回模型清单（DeepSeek 附带余额）
+  ipcMain.handle('settings:test-key', async (_e, arg) => {
+    const o = typeof arg === 'string' ? { apiKey: arg } : arg && typeof arg === 'object' ? arg : {};
+    const override = {
+      id: Providers.PROVIDER_IDS.includes(o.id) ? o.id : store.get().ai.provider,
+      apiKey: String(o.apiKey || '').trim(),
+      baseUrl: String(o.baseUrl || '').trim(),
+      model: String(o.model || '').trim(),
+      type: Providers.API_TYPES.includes(o.type) ? o.type : '',
+    };
+    const p = store.provider(override.id);
+    if (!override.apiKey && !p.apiKey && !p.noKey && !p.custom) return { ok: false, message: t('err.enterKey') };
     try {
-      const r = await llm.testKey(k);
-      return {
-        ok: true,
-        models: r.models.map((m) => m.id),
-        balance: r.balance,
-      };
+      const r = await llm.testKey(override);
+      return { ok: true, models: r.models.map((m) => m.id), balance: r.balance };
     } catch (e) {
       return { ok: false, message: e.message };
     }
@@ -369,17 +403,7 @@ function setupSettingsIpc() {
 
   ipcMain.handle('settings:models', async () => {
     try {
-      const list = await llm.listModels();
-      return {
-        ok: true,
-        models: list.map((m) => ({
-          id: m.id,
-          name: m.name || m.id,
-          vision: Array.isArray(m.input_modalities) && m.input_modalities.includes('image'),
-          efforts: (m.effort && m.effort.supported_levels) || [],
-          context: m.context_window || 0,
-        })),
-      };
+      return { ok: true, models: await llm.listModels() };
     } catch (e) {
       return { ok: false, message: e.message, models: [] };
     }
@@ -393,24 +417,31 @@ function setupSettingsIpc() {
   });
   ipcMain.on('settings:open-data', () => shell.openPath(dataDir()));
   ipcMain.on('settings:open-link', (_e, key) => {
-    if (LINKS[key]) shell.openExternal(LINKS[key]);
+    // providerKey：当前服务商「创建 API Key」的页面（地址来自内置目录，不接受页面传来的网址）
+    const target = key === 'providerKey' ? Providers.info(store.get().ai.provider).keyUrl : LINKS[key];
+    if (target) shell.openExternal(target);
   });
   ipcMain.on('settings:home', () => home());
   ipcMain.on('settings:say', () => ctx().whisper());
 }
 
 // ---------------------------------------------------------------- 设置变化 → 生效
+/** 桌宠窗口关心的 AI 状态：能不能说话、能不能查余额（变了才需要重建窗口） */
+let lastAiState = '';
+function aiState() {
+  return store.hasApiKey() + '|' + store.provider().balance;
+}
+
 function onSettingsChange(next, prev) {
   const changed = (k) => JSON.stringify(next[k]) !== JSON.stringify(prev[k]);
-  const keyChanged = next.ai.apiKey !== prev.ai.apiKey;
+  const keyChanged = next.ai.provider !== prev.ai.provider || JSON.stringify(next.ai.providers) !== JSON.stringify(prev.ai.providers);
   if (keyChanged) llm.resetCaches();
   const langChanged = next.app.language !== prev.app.language;
+  const ai = aiState();
+  const aiFlip = ai !== lastAiState;
+  lastAiState = ai;
   // 影响桌宠本身的设置：重建窗口（新窗口就绪后才替换旧窗口，几乎无闪烁）
-  if (
-    (changed('pet') || changed('talk') || langChanged || !!next.ai.apiKey !== !!prev.ai.apiKey) &&
-    next.app.visible &&
-    petWindow.window()
-  ) {
+  if ((changed('pet') || changed('talk') || langChanged || aiFlip) && next.app.visible && petWindow.window()) {
     petWindow.recreate();
   }
   // 换语言：菜单、关于面板、聊天和设置窗口都换成新语言
@@ -425,7 +456,7 @@ function onSettingsChange(next, prev) {
     shortcutOk = registerShortcut();
   }
   if (next.app.showInDock !== prev.app.showInDock) applyDock();
-  if (!langChanged && (next.pet.name !== prev.pet.name || keyChanged || next.ai.model !== prev.ai.model)) {
+  if (!langChanged && (next.pet.name !== prev.pet.name || keyChanged)) {
     chatWindow.send('chat:refresh', chatState());
   }
   const onlyPosition = changed('position') && !['pet', 'talk', 'ai', 'app', 'onboarded'].some(changed);
@@ -470,6 +501,7 @@ if (!app.requestSingleInstanceLock()) {
       }
       store.save();
     }
+    lastAiState = aiState();
     store.on('change', onSettingsChange);
 
     applyAboutPanel();
@@ -501,7 +533,7 @@ if (!app.requestSingleInstanceLock()) {
     if (store.get().app.visible) petWindow.create();
     shortcutOk = registerShortcut();
     // 开发态调试把手（node --inspect 连上主进程后可直接调用）
-    if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat };
+    if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat, petConfig };
 
     // 登录项与设置对齐（用户可能在系统设置里手动关过）
     if (app.isPackaged) {

@@ -45,9 +45,22 @@
 
 打开后她会出现在桌面右下角，右上角菜单栏多一个 🐳 小鲸鱼图标。
 
-### 想和她聊天？填一个 API Key
+### 想和她聊天？选一家 AI 服务
 
-第一次打开会自动弹出设置窗口：到 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建一个 API Key，粘贴进去点「保存」就行（按用量计费）。
+第一次打开会自动弹出设置窗口：在「AI 对话」里选一家服务商，填上它的 API Key 点「保存」就行（保存前会自动测试，并帮你选好模型）。默认是 [DeepSeek](https://platform.deepseek.com/api_keys)。
+
+| 服务商 | 说明 |
+|---|---|
+| **DeepSeek**（默认） | 支持看图、思考深度、余额提醒 |
+| OpenAI | 支持思考深度 |
+| Claude（Anthropic） | 使用 Anthropic 官方接口 |
+| Google Gemini | 支持思考深度 |
+| 月之暗面 Kimi · 智谱 GLM · 通义千问 · 硅基流动 · OpenRouter | 填 Key 即可 |
+| 豆包（火山方舟） | 模型名处填接入点 ID 或模型名 |
+| Ollama（本地模型） | 不需要 Key，数据不出电脑 |
+| 自定义接口 | 任何 OpenAI 兼容或 Anthropic 兼容的接口（LM Studio、各类中转服务等） |
+
+每家的 Key、接口地址、模型分开保存，切换服务商不会丢掉之前填的。要走代理或中转，改「接口地址」就行。
 
 不填也能玩：拖她、甩她、戳她、点播 100 多段动画都不需要联网。
 
@@ -74,7 +87,7 @@
 <p align="center"><img src="docs/screenshot-settings.png" alt="设置窗口" width="640"></p>
 
 - **桌宠**：名字、大小、初始位置、自己走动、活跃程度、甩出去的力度、自动碎碎念（频率/配图）、定时报告余额
-- **AI 对话**：API Key、模型（标出哪个能看图）、思考深度、记住几轮对话、清空聊天记录、人设
+- **AI 对话**：服务商、API Key、接口地址、模型（可从列表选，也可直接输入）、思考深度、记住几轮对话、清空聊天记录、人设
 - **通用**：语言（跟随系统 / 简体中文 / English）、登录时自动打开、程序坞图标、全屏应用上方是否显示、显示/隐藏快捷键
 
 ## 常见问题
@@ -88,7 +101,7 @@
 <details>
 <summary><b>API Key 安全吗？会花很多钱吗？</b></summary>
 
-Key 只保存在你自己电脑上（<code>~/Library/Application Support/ds_pet/settings.json</code>，仅你的账户可读），只会发给 <code>api.deepseek.com</code>。应用没有任何统计或上报。<br>
+Key 只保存在你自己电脑上（<code>~/Library/Application Support/ds_pet/settings.json</code>，仅你的账户可读），只会发给你选的那家服务商的接口地址。应用没有任何统计或上报。<br>
 自动碎碎念默认每 15 分钟一句，你离开电脑 10 分钟以上就不说了；嫌费额度可以在设置里调低频率或关掉。
 </details>
 
@@ -157,7 +170,7 @@ npm run install-app   # 打包并直接装进「应用程序」
 
 ```
 desktop/                 应用本体（打包时原样放进 .app）
-  main/                  主进程：菜单栏、窗口、快捷键、登录项、DeepSeek 调用、数据存储
+  main/                  主进程：菜单栏、窗口、快捷键、登录项、AI 调用（providers.js 是服务商目录）、数据存储
   pet/                   桌宠页面：动画、拖拽甩抛物理、气泡（来自 dsh-pet）
   chat/                  聊天面板
   settings/              设置窗口
@@ -185,4 +198,4 @@ scripts/
 
 - **原项目**：[PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT）。桌宠角色、动画、美术、物理与玩法均来自原项目，角色与美术素材版权归原作者所有；原许可证全文见 [`desktop/LICENSE.dsh-pet`](desktop/LICENSE.dsh-pet)，详细出处见 [NOTICE.md](NOTICE.md)。
 - **本项目**代码以 [MIT](LICENSE) 协议开源。
-- 对话能力由 [DeepSeek](https://platform.deepseek.com/) 提供。本项目是个人作品，与 DeepSeek 官方无关。
+- 对话由你选择的 AI 服务商提供（默认 [DeepSeek](https://platform.deepseek.com/)）。本项目是个人作品，与各服务商官方无关。

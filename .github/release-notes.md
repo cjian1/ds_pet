@@ -18,4 +18,5 @@
    **Blocked on first launch**: System Settings › Privacy & Security → click **Open Anyway**.
    提示「已损坏」/ If it says "damaged":
    `xattr -dr com.apple.quarantine /Applications/ds_pet.app`
-3. 填上 [DeepSeek API Key](https://platform.deepseek.com/api_keys) 就能和她聊天。 Add a [DeepSeek API key](https://platform.deepseek.com/api_keys) to chat with her.
+3. 在设置里选一家 AI 服务（默认 DeepSeek，也支持 OpenAI、Claude、Gemini、Kimi、智谱、通义、Ollama 等），填上 API Key 就能和她聊天。
+   Pick an AI provider in Settings (DeepSeek by default; OpenAI, Claude, Gemini, Kimi, Qwen, Ollama and more are supported) and add an API key to chat with her.

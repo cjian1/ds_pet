@@ -46,9 +46,22 @@
 
 She'll appear in the bottom-right corner of your desktop, and a little 🐳 whale shows up in the menu bar.
 
-### Want to chat? Add an API key
+### Want to chat? Pick an AI provider
 
-The first time you open the app, Settings opens for you. Create an API key on the [DeepSeek platform](https://platform.deepseek.com/api_keys), paste it in and click **Save** (usage is billed by DeepSeek).
+The first time you open the app, Settings opens for you. Under **AI Chat**, pick a provider, paste its API key and click **Save** (it tests the key first and picks a model for you). The default is [DeepSeek](https://platform.deepseek.com/api_keys).
+
+| Provider | Notes |
+|---|---|
+| **DeepSeek** (default) | Image input, thinking level, balance reports |
+| OpenAI | Thinking level |
+| Claude (Anthropic) | Uses Anthropic's own API |
+| Google Gemini | Thinking level |
+| Moonshot Kimi · Zhipu GLM · Qwen · SiliconFlow · OpenRouter | Just add a key |
+| Doubao (Volcengine Ark) | Put your endpoint ID or model name in the model field |
+| Ollama (local models) | No key needed; nothing leaves your Mac |
+| Custom endpoint | Any OpenAI-compatible or Anthropic-compatible API (LM Studio, relay services, …) |
+
+Each provider keeps its own key, base URL and model, so switching back and forth loses nothing. To go through a proxy or relay, just change the base URL.
 
 No key? You can still drag her, fling her, poke her and play 100+ animations — none of that needs the internet.
 
@@ -77,7 +90,7 @@ Right-click her → **Settings…**, or click the menu bar whale → **Settings�
 <p align="center"><img src="docs/screenshot-settings-en.png" alt="Settings window" width="640"></p>
 
 - **Pet**: name, size, start position, walking around, liveliness, fling strength, random chatter (frequency and stickers), balance reports
-- **AI Chat**: API key, model (shows which ones can see images), thinking level, how many messages she remembers, clear chat history, personality
+- **AI Chat**: provider, API key, base URL, model (pick from the list or type one), thinking level, how many messages she remembers, clear chat history, personality
 - **General**: language (match system / 简体中文 / English), open at login, Dock icon, show over full-screen apps, show/hide shortcut
 
 ## FAQ
@@ -91,7 +104,7 @@ Only her body catches clicks; the transparent area around her passes clicks thro
 <details>
 <summary><b>Is my API key safe? Will this cost a lot?</b></summary>
 
-The key is stored only on your Mac (<code>~/Library/Application Support/ds_pet/settings.json</code>, readable only by your user account) and is only ever sent to <code>api.deepseek.com</code>. The app has no analytics or telemetry.<br>
+The key is stored only on your Mac (<code>~/Library/Application Support/ds_pet/settings.json</code>, readable only by your user account) and is only ever sent to the provider you chose. The app has no analytics or telemetry.<br>
 Random chatter happens once every 15 minutes by default, and stops while you're away from your computer for more than 10 minutes. To use less credit, lower the frequency or turn chatter off in Settings.
 </details>
 
@@ -154,7 +167,7 @@ Builds only use tools that ship with macOS (`ditto` / `codesign` / `hdiutil`); n
 
 ```
 desktop/                 The app itself (copied into the .app as is)
-  main/                  Main process: menu bar, windows, shortcut, login item, DeepSeek calls, storage
+  main/                  Main process: menu bar, windows, shortcut, login item, AI calls (providers.js lists the providers), storage
   pet/                   Pet page: animations, drag & fling physics, speech bubbles (from dsh-pet)
   chat/                  Chat panel
   settings/              Settings window
@@ -182,4 +195,4 @@ scripts/
 
 - **Original project**: [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (MIT). The pet character, animations, artwork, physics and gameplay come from the original project, and the character and artwork copyright belongs to the original authors. The original license is kept in [`desktop/LICENSE.dsh-pet`](desktop/LICENSE.dsh-pet); see [NOTICE.md](NOTICE.md) for details.
 - **This project's** code is released under the [MIT](LICENSE) license.
-- Chat is powered by [DeepSeek](https://platform.deepseek.com/). This is a personal project and is not affiliated with DeepSeek.
+- Chat is powered by the AI provider you choose ([DeepSeek](https://platform.deepseek.com/) by default). This is a personal project and is not affiliated with any provider.
