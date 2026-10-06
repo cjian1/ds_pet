@@ -163,10 +163,6 @@ async function handleApi(request, rest, url) {
     }
   }
 
-  // DSH 专属能力（工作状态 / 斜杠命令广播）在独立版里恒为空
-  if (rest === 'work-status') return json({ state: null, ts: 0 });
-  if (rest === 'broadcast') return json({ ts: 0 });
-
   return json({ error: 'not found: ' + rest }, 404);
 }
 
@@ -202,4 +198,13 @@ function installHandler() {
   });
 }
 
-module.exports = { registerScheme, installHandler, SCHEME, ORIGIN, API, mainPet };
+module.exports = {
+  registerScheme,
+  installHandler,
+  SCHEME,
+  ORIGIN,
+  API,
+  mainPet,
+  /** 只给单测用（test/service.test.js） */
+  _internal: { safeFile, fileResponse, handleApi },
+};

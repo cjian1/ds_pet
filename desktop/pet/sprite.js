@@ -7,14 +7,12 @@
  */
 'use strict';
 
-// ---------- 单只宠物（行为与浏览器 PetCard 一致；纯逻辑来自 src/shared） ----------
+// ---------- 单只宠物（行为与上游浏览器版 PetCard 一致；纯逻辑来自 shared-core.js） ----------
 class PetSprite {
   constructor(pet) {
     this.pet = pet; // 这只宠物的配置段（拍平后的成品实例，条目级字段已吹入：动画池/权重/周期）
-    // 页面级缩放（main 对窗口 setZoomFactor(CONFIG.scale)，见 DESIGN.md §3.5）统一放大整窗：
-    // pet.size 即 CSS 像素基准，**不再手工乘 CONFIG.scale**——固定 px UI（菜单/积分/聊天）
-    // 随同一缩放自动恢复 DIP 观感；跨进程交换（bounds/几何/碰撞）由 constants.js 的
-    // toScreen/toLocal 收口换算，这里与 shared 组件一样零乘除。
+    // pet.size 即 CSS 像素基准；与主进程交换的坐标（bounds/几何）由 constants.js 的
+    // toScreen/toLocal 收口换算，这里不做乘除。
     this.size = pet.size;
     this.height = (this.size * 9) / 16;
     this.halfW = this.size / 2;
@@ -83,12 +81,10 @@ class PetSprite {
     this.squashRef = null;
     this.squashToken = 0;
     this.pendingSquash = false;
-    this._interactive = null; // 当前可交互状态（null=未定；只在变化时发 IPC，避免逐帧刷屏）
     this.moveRef = null;
     this.moveToken = 0;
     this.pendingMove = null;
     this.customPos = CONFIG.pos; // 她停下的位置（中心点比例）：会存下来，下次启动从这里出现
-    // 右键菜单（统一自绘组件，两端共用同一份：树+渲染均来自 shared-core）
     this.menuOpen = false; // 原生右键菜单开着：期间整窗保持可交互
     // 余额气泡
     this.bubbleOn = false;
@@ -96,29 +92,13 @@ class PetSprite {
     this.balanceView = null;
     this.balanceWrap = false; // true = 当前余额气泡是不可用的「文字说明」（多行，需换行变体）
     this.prevTick = 0;
-    // 碎碎念（每只独立：自己轮询 /whisper?pet=<id>、自己的文本/配图与触发）
+    // 碎碎念 / 对话气泡（定时碎碎念见 events.js；她在面板外说的话也走这里）
     this.whisperOn = false;
     this.whisperTimer = null;
     this.whisperView = null;
-    this.whisperText = '';
-    // 配图名称（配置 memes 的键；whisperImageEnabled 开启时由 host 随机抽定，随文本一起来）
+    // 配图名称（配置 memes 的键；whisperImageEnabled 开启时由主进程随机抽定，随文本一起来）
     this.whisperImage = '';
-    this.whisperBaseline = false;
-    this.prevWhisperTs = 0;
     this.whisperLoopTimer = null;
-    // 命令触发气泡（/chat 命令）：1s 轻轮询 /broadcast，ts 变化即弹气泡（与碎碎念周期独立，不受开关门控）
-    this.broadcastLoopTimer = null;
-    this.broadcastBaseline = false;
-    this.prevBroadcastTs = 0;
-    // 工作状态联动（DSH 会话状态）：容器 1s 轮询 /work-status 递增 workTick → 本宠物按档位播动画+气泡。
-    // 气泡单槽优先级 终态任务 > whisper > balance > 非终态任务（见 renderBubble）；
-    // workStatusEnabled 未启用时完全免疫（与浏览器一致）
-    this.workOn = false;
-    this.workTimer = null;
-    this.workText = null;
-    this.workState = null; // 最近一次工作状态（互动/事件动画播完恢复档位循环用）
-    this.prevWorkState = null; // 上一档状态（气泡只在状态变化时点亮/收起，Bug 2）
-    this.prevWorkTick = 0;
 
     // DOM：sprite 钉在窗口内 (margin.l, margin.t)；宠物"位置"= sprite 位置，窗口随余量外扩
     this.el = document.createElement('div');
@@ -184,37 +164,8 @@ class PetSprite {
       { signal: ac.signal },
     );
 
-    // 宠物间碰撞（跨窗 broker）：订阅其它宠物状态广播（碰撞检测用）+ 「被撞」事件 → onDeskHit。
-    // 注意：退订由窗口销毁自然回收（webContents 销毁后 ipc 事件不再派发），无需显式取消。
-    this.others = {}; // petId -> {x,y,vx,vy,size,bottomPad}（其它宠物的最新状态，来自主进程广播）
-    this.throwState = null; // 飞行中的实时状态（被撞查询 / 其它窗碰撞检测时上报用）
+    this.throwState = null; // 飞行中的实时状态（空中被抓时算点击积分用）
     this.pressScoreFired = false; // 按下瞬间已触发过积分（pointerdown 即触发；click 据此不重复弹，同浏览器）
-    this.lastFlightReport = 0;
-    if (window.petBridge && window.petBridge.onFlightStates) {
-      window.petBridge.onFlightStates((states) => {
-        if (!states || typeof states !== 'object') return;
-        const next = {};
-        for (const pid of Object.keys(states)) {
-          if (pid === this.pet.id) continue; // 排除自己
-          const s = states[pid];
-          next[pid] = {
-            // 碰撞 broker 协议单位是物理像素（与窗口 bounds 一致）：÷scale 进本窗口 CSS 系（§3.5）
-            x: toLocal(Number(s && s.x) || 0),
-            y: toLocal(Number(s && s.y) || 0),
-            vx: toLocal(Number(s && s.vx) || 0),
-            vy: toLocal(Number(s && s.vy) || 0),
-            size: toLocal(Number(s && s.size) || 0),
-            bottomPad: toLocal(Number(s && s.bottomPad) || 0),
-          };
-        }
-        this.others = next;
-      });
-      window.petBridge.onPetHit((payload) => {
-        const vx = Number(payload && payload.vx);
-        const vy = Number(payload && payload.vy);
-        if (Number.isFinite(vx) && Number.isFinite(vy)) this.onDeskHit(toLocal(vx), toLocal(vy));
-      });
-    }
   }
 
   dispose() {
@@ -222,21 +173,12 @@ class PetSprite {
     if (this.bubbleTimer !== null) window.clearTimeout(this.bubbleTimer);
     if (this.whisperTimer !== null) window.clearTimeout(this.whisperTimer);
     if (this.whisperLoopTimer !== null) window.clearTimeout(this.whisperLoopTimer);
-    if (this.broadcastLoopTimer !== null) window.clearTimeout(this.broadcastLoopTimer);
-    if (this.workTimer !== null) window.clearTimeout(this.workTimer);
     this.stopThrow();
     this.stopDragFollow();
     this.stopSquash();
     this.stopMove();
     this.el.remove();
   }
-
-  // 目标包围盒左上角（视口相对坐标）→ 移动窗口：窗口 = sprite + 四周外扩余量
-  // （sprite 钉在窗口 (margin.l, margin.t)，气泡/弹窗显示在余量里）。
-  // setContentBounds 要**屏幕**坐标：pos 是视口（桌面外接矩形）相对坐标，先加 VIEW.x/y
-  // 再统一 ×scale 回物理像素（§3.5 IPC 收口）——主进程收到的数字与线性化旧行为逐位一致，
-  // 主进程侧（bounds/去重/碰撞 broker）完全不用改。
-
 
   /** 窗口到不了 pos（被菜单栏/屏幕边缘顶住）时，把精灵在窗口内挪过去 —— 宠物因此能继续往屏幕顶部走；
    *  窗口跟得上时算出来的偏移正好等于余量，行为与上游完全一致。 */
@@ -285,29 +227,26 @@ class PetSprite {
     };
   }
 
+  // 目标包围盒左上角（视口相对坐标）→ 移动窗口：窗口 = sprite + 四周外扩余量
+  // （sprite 钉在窗口 (margin.l, margin.t)，气泡显示在余量里）。
+  // setContentBounds 要**屏幕**坐标：pos 是视口（桌面外接矩形）相对坐标，先加 VIEW.x/y
+  // 再统一 ×scale 回物理像素（§3.5 IPC 收口）。
   sendBounds(px, py) {
     this.pos = { x: Math.round(px), y: Math.round(py) };
     if (this.bubble && this.bubble.classList.contains('is-on')) this.placeBubble();
     window.__dshPetDebug.dragPos = { x: this.pos.x, y: this.pos.y };
     if (window.petBridge) {
-      // 完整状态一次捎带：size/bottomPad 让静止宠物从首帧起就登记进碰撞站场
-      // （此前只有 report-flight 带尺寸，从没飞过的宠物 size=0 被碰撞检测直接跳过）；
-      // vx/vy 带当前速度——飞行中实时值、静止/拖拽 = 0，避免落地后残留上次飞行速度干扰碰撞动量。
-      const fly = this.throwState;
-      window.petBridge.setBounds(
-        toScreen(this.pos.x - this.margin.l + VIEW.x),
-        toScreen(this.pos.y - this.margin.t + VIEW.y),
-        toScreen(this.size + this.margin.l + this.margin.r),
-        toScreen(this.winH + this.margin.t + this.margin.b),
-        toScreen(this.pos.x), // 包围盒左上角（碰撞站场用：窗口坐标 ≠ 包围盒坐标）
-        toScreen(this.pos.y),
-        toScreen(this.size),
-        toScreen(this.bottomPad),
-        fly ? toScreen(fly.vx) : 0,
-        fly ? toScreen(fly.vy) : 0,
-        toScreen(this.spriteOffset.x), // 精灵在窗口内的偏移（主进程命中判定 / 聊天面板定位用）
-        toScreen(this.spriteOffset.y),
-      );
+      window.petBridge.setBounds({
+        x: toScreen(this.pos.x - this.margin.l + VIEW.x),
+        y: toScreen(this.pos.y - this.margin.t + VIEW.y),
+        width: toScreen(this.size + this.margin.l + this.margin.r),
+        height: toScreen(this.winH + this.margin.t + this.margin.b),
+        size: toScreen(this.size),
+        bottomPad: toScreen(this.bottomPad),
+        // 精灵在窗口内的偏移（主进程命中判定 / 聊天面板定位用）
+        offX: toScreen(this.spriteOffset.x),
+        offY: toScreen(this.spriteOffset.y),
+      });
     }
   }
 
@@ -481,67 +420,18 @@ class PetSprite {
   handleEnded() {
     if (this.dragState.active) return;
     const { animations } = { animations: this.animations };
-    // 事件动画播完：回 idle（与 drag/clicks 同分支，不进随机链）；气泡由定时器自动消失，与动画解耦
-    const isEvent = S.isEventAnim(animations.events, this.anim);
-    if (isEvent) {
-      // 工作状态多候选档位：播完一段自动轮换到下一候选（排除当前段，避免连抽），继续循环——
-      // 长时间状态不单段重复（与浏览器 ended 护栏共用同一决策 nextWorkStatusAnim）。
-      // 仅非终态档位轮换；终态（success/error）播完一次即结束，绝不轮换续播。单候选档位由
-      // loop 无限循环（不触发 ended，不会走到这里）。
-      const nonTerminal = this.workState && this.workState !== 'success' && this.workState !== 'error';
-      const nextWork = nonTerminal ? S.nextWorkStatusAnim(animations.events?.workStatus ?? [], this.anim) : null;
-      if (nextWork !== null) {
-        console.log(
-          '[dsh-pet] ' +
-            new Date().toTimeString().slice(0, 8) +
-            ' pet=' +
-            this.pet.id +
-            ' workStatus 档内轮换: ' +
-            this.anim +
-            ' -> ' +
-            nextWork,
-        );
-        this.playOnce(nextWork); // 继续播一遍（once=true）→ ended 再轮换
-        return;
-      }
-      // 非 workStatus 事件动画（余额/碎碎念）播完：workStatus 仍非终态 → 立即恢复档位循环动画，
-      // 不进随机链（长事件期间状态不变，随机链会一直播到状态切换才被拉回）
-      if (this.resumeWorkStatusAnim()) return;
-      if (animations.idle.length) this.playOnce(S.pick(animations.idle, this.anim));
-      return;
-    }
     if (animations.turn.includes(this.anim)) {
       const next = this.facing === 'left' ? 'right' : 'left';
       this.facing = next; // 立即同步：翻转后的 pickNext 用新朝向过滤 noMirror
     }
-    if (animations.drag.includes(this.anim) || animations.clicks.includes(this.anim)) {
-      // 互动动画播完：workStatus 非终态时恢复状态循环，否则回 idle（与浏览器同一语义）
-      if (this.resumeWorkStatusAnim()) return;
+    // 事件动画（余额 / 碎碎念 / 菜单点播的事件动作）与互动动画（拖拽 / 点击）播完：回 idle，
+    // 不进随机链；气泡由定时器自动消失，与动画解耦
+    const isEvent = S.isEventAnim(animations.events, this.anim);
+    if (isEvent || animations.drag.includes(this.anim) || animations.clicks.includes(this.anim)) {
       if (animations.idle.length) this.playOnce(S.pick(animations.idle, this.anim));
       return;
     }
     this.playIdle();
-  }
-
-  // 互动/事件动画播完后恢复 workStatus 档位循环：非终态 → 按当前状态档位重选动画（多候选档内
-  // 随机并避开当前段）；终态/空闲 → false 不接管，调用方走原逻辑（回 idle / 随机池，与浏览器一致）。
-  resumeWorkStatusAnim() {
-    const state = this.workState;
-    if (!state || state === 'success' || state === 'error') return false;
-    const pool = this.animations.events?.workStatus;
-    if (!pool || pool.length === 0) return false;
-    const idx = S.WORK_STATUS_INDEX[state];
-    const slot = pool[idx];
-    if (slot === undefined) return false;
-    const name = S.pickSlot(slot, this.anim); // 避开当前正播动画（避免连续重复）
-    console.log(
-      '[dsh-pet] ' + new Date().toTimeString().slice(0, 8) + ' pet=' + this.pet.id + ' 恢复工作状态动画: ' + name,
-    );
-    const rotating = Array.isArray(slot) && slot.length > 1;
-    if (rotating)
-      this.playOnce(name); // 多候选：播完由 handleEnded 轮换
-    else this.switchTo(name, false); // 单候选：无限循环
-    return true;
   }
 
   // ---- 漫游（rAF 驱动，动画首尾各 leadSec/tailSec 秒原地不动；几何在 shared/planMove） ----
@@ -698,44 +588,6 @@ class PetSprite {
       const res = S.throwStepRegion(state, dt, sp, this.physics, lockScreen);
       state = { x: res.x, y: res.y, vx: res.vx, vy: res.vy };
       this.throwState = state;
-      // 上报飞行状态（节流 ~30ms）：主进程 broker 汇聚后广播，其它窗口用它做跨窗碰撞检测；
-      // broker 协议单位 = 物理像素，这里 ×scale（§3.5 收口）
-      if (window.petBridge && window.petBridge.reportFlight && now - this.lastFlightReport > 30) {
-        window.petBridge.reportFlight({
-          x: toScreen(state.x),
-          y: toScreen(state.y),
-          vx: toScreen(state.vx),
-          vy: toScreen(state.vy),
-          size: toScreen(this.size),
-          bottomPad: toScreen(this.bottomPad),
-        });
-        this.lastFlightReport = now;
-      }
-      // 宠物间碰撞（仅 petCollision 开启）：飞行中的自己撞到其它宠物 → 动量弹开
-      if (this.physics && this.physics.petCollision) {
-        const myBody = S.bodyPixelBox({ x: state.x, y: state.y, size: this.size, bottomPad: this.bottomPad });
-        for (const pid of Object.keys(this.others)) {
-          const o = this.others[pid];
-          if (!o || !o.size) continue;
-          const otherBody = S.bodyPixelBox({ x: o.x, y: o.y, size: o.size, bottomPad: o.bottomPad });
-          if (!S.rectsOverlap(myBody, otherBody)) continue;
-          const hit = S.collidePet(
-            { x: state.x, y: state.y, vx: state.vx, vy: state.vy, size: this.size },
-            { x: o.x, y: o.y, vx: o.vx, vy: o.vy, size: o.size },
-          );
-          if (hit) {
-            // 飞行方：按动量结果继续弹开；被撞方：主进程转发给目标窗口 → 目标窗 startThrow
-            state.vx = hit.fvx;
-            state.vy = hit.fvy;
-            this.throwState = state;
-            if (window.petBridge && window.petBridge.reportCollide) {
-              // 被撞方初速同为 broker 物理像素协议：×scale（§3.5 收口）
-              window.petBridge.reportCollide(pid, toScreen(hit.hvx), toScreen(hit.hvy));
-            }
-            break; // 一帧只处理一次碰撞（避免连锁触发抖动）
-          }
-        }
-      }
       this.sendBounds(res.x, res.y);
       // 落地 Q 弹：只在空中→地面转换帧触发一次，力度随冲击速度（轻落 0.8 ~ 重砸 0.55）。
       // 「地面」是**当前所在屏**的底边——多屏各有各的地面高度
@@ -757,14 +609,6 @@ class PetSprite {
       this.throwRef = requestAnimationFrame(step);
     };
     this.throwRef = requestAnimationFrame(step);
-  }
-
-  /** 被撞回调（跨窗碰撞 broker 转发）：停当前动作，从落点以新初速抛出去（全复用现有物理） */
-  onDeskHit(vx, vy) {
-    this.stopMove();
-    this.stopDragFollow();
-    this.stopThrow();
-    this.startThrow(this.pos.x, this.pos.y, vx, vy);
   }
 
   /** Q 弹挤压：前台视频垂直压扁（贴地锚定，transform-origin:bottom）再回弹；
@@ -931,12 +775,9 @@ class PetSprite {
           yUp: e.screenY,
         };
       }
-      // 拖拽松手：workStatus 非终态时恢复状态循环，否则回 idle（与浏览器 handlePointerUp 一致）
-      // 修复：旧实现 switchTo(idle,false)（loop=true，ended 永不触发）→ 随机链永远回不来，
-      // 永远卡在同一段待机动画；改为 playOnce（once=true）播一遍 → ended → handleEnded → playIdle 随机链
-      if (!this.resumeWorkStatusAnim()) {
-        if (this.animations.idle.length) this.playOnce(S.pick(this.animations.idle, this.anim));
-      }
+      // 拖拽松手：回 idle。用 playOnce（once=true）播一遍 → ended → handleEnded → playIdle 随机链；
+      // 用 switchTo(idle,false)（loop=true，ended 永不触发）会永远卡在同一段待机动画
+      if (this.animations.idle.length) this.playOnce(S.pick(this.animations.idle, this.anim));
       // 释放位置 = 弹簧跟随后的实际包围盒左上角（this.pos 实时；不是指针目标——
       // 跟手滞后时落点跟随宠物实际位置，与浏览器 boxPx 同语义）
       const px = this.pos.x;
@@ -1067,9 +908,6 @@ class PetSprite {
     this.syncInputBusy();
   }
 
-  /** 原生菜单由系统管理，这里无事可做（保留给旧调用点） */
-  closeMenu() {}
-
   /** 主进程发来的动作（右键菜单 / 菜单栏 / 聊天面板） */
   onAction(a) {
     if (!a || typeof a !== 'object') return;
@@ -1192,38 +1030,28 @@ class PetSprite {
   }
 
   renderBubble() {
-    // 气泡单槽：同一时刻只显示一个（优先级：终态任务 > 碎碎念/对话 > 余额 > 非终态任务）。
-    // 为什么终态任务不让位：完成/失败气泡只活 10s，被事件顶掉就彻底看不到了；非终态任务气泡
-    // 常驻（不设自动收起），让位 10s 零损失。与浏览器 src/client/pet.ts 的单槽优先级同一套。
-    // 工作气泡与碎碎念同款弹窗样式：宽度自适应 + 自动换行（is-whisper：正常 white-space、宽随内容）
-    // 配图标记交给 CSS：带图时取消 min-width（样式在 shared 的 MEME_BUBBLE_CSS，两端同一份）。
-    // 图片 URL 与视频同规则：传 BASE 前缀（桌面是 file:// 页面，必须绝对地址）
-    const workOn = !!(this.workOn && this.workText);
+    // 气泡单槽：同一时刻只显示一个（碎碎念/对话优先于余额）。
+    // 碎碎念是宽度自适应 + 自动换行的变体（is-whisper：正常 white-space、宽随内容）；
+    // 配图标记交给 CSS：带图时取消 min-width（样式在 shared 的 MEME_BUBBLE_CSS）。
+    // 图片 URL 与视频同规则：传 BASE 前缀（页面在 deskpet:// 下，用绝对地址）
     const whisperOn = !!(this.whisperOn && this.whisperView);
     const balanceOn = !!(this.bubbleOn && this.balanceView);
-    const workTerminal = this.workState === 'success' || this.workState === 'error';
-    const slot =
-      workTerminal && workOn ? 'work' : whisperOn ? 'whisper' : balanceOn ? 'balance' : workOn ? 'work' : 'none';
+    const slot = whisperOn ? 'whisper' : balanceOn ? 'balance' : 'none';
     const whisperImg = slot === 'whisper' ? S.createMemeImage(this.whisperImage, BASE) : null;
     this.bubble.classList.toggle(
       'is-whisper',
       // 余额「文字说明」（不可用状态）同样要换行变体：默认 nowrap 会把长文案顶出宠物宽度
-      slot === 'whisper' || slot === 'work' || (slot === 'balance' && this.balanceWrap),
+      slot === 'whisper' || (slot === 'balance' && this.balanceWrap),
     );
     this.bubble.classList.toggle(S.MEME_BUBBLE_CLASS, !!whisperImg);
     if (slot === 'none') {
-      // 三者都没有可显示的内容：隐藏（不占位，也就不会挡住任何一层）
+      // 都没有可显示的内容：隐藏（不占位，也就不会挡住任何一层）
       this.bubble.classList.remove('is-on');
       window.__dshPetDebug.lastBubbleTitle = '';
       return;
     }
     this.bubble.innerHTML = '';
-    if (slot === 'work') {
-      const line = document.createElement('div');
-      line.className = 'pet-bub-row';
-      line.textContent = this.workText;
-      this.bubble.appendChild(line);
-    } else if (slot === 'whisper') {
+    if (slot === 'whisper') {
       // 配图（shared 生成的 <img> + 共用样式）：先看图再读话，符合"配图"的阅读顺序
       if (whisperImg) this.bubble.appendChild(whisperImg);
       const line = document.createElement('div');

@@ -23,12 +23,11 @@ const CONFIG = {
   })(),
 };
 
-// ---------- 渲染端坐标系统一约定（DESIGN.md §3.5） ----------
-// main 进程对窗口做页面级缩放 setZoomFactor(CONFIG.scale) 后，本窗口的 DOM 度量、事件坐标、
-// 桌面几何（VIEW/AREAS/PRIMARY_AREA）与全部 shared 组件（右键菜单/积分弹窗/聊天框）都在
-// **同一套 CSS 像素**里——固定 px UI 随缩放自动恢复 DIP 观感，组件代码零换算。
-// 主进程侧（窗口 bounds、逐屏几何、碰撞 broker）仍是物理像素：与它交换的值只允许在下面两个
-// 收口换算（×scale 发出去 / ÷scale 收进来），任何组件代码不得再乘除（防散修回归）。
+// ---------- 渲染端坐标系统一约定（沿用上游 DESIGN.md §3.5） ----------
+// 本窗口的 DOM 度量、事件坐标、桌面几何（VIEW/AREAS/PRIMARY_AREA）都在同一套 CSS 像素里。
+// 与主进程交换的值（窗口 bounds、逐屏几何）只允许在下面两个函数里换算（×scale 发出去 / ÷scale 收进来），
+// 别处不要再乘除。macOS 上主进程给的就是 DIP，CONFIG.scale 恒为 1（pet-window.js 传入），
+// 留着这两个收口是为了和上游代码保持同构。
 function toScreen(v) {
   return v * CONFIG.scale;
 }

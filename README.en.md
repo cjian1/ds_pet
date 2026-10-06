@@ -162,6 +162,18 @@ npm run install-app   # build and install straight into Applications
 
 Builds only use tools that ship with macOS (`ditto` / `codesign` / `hdiutil`); no Apple developer account needed.
 
+Tests:
+
+```bash
+npm run check             # syntax check
+npm test                  # unit tests (settings, AI provider requests and streaming, local service, click-through, strings and assets)
+npm run test:real-input   # drive the pet with the real system mouse (click, click-through, drag, right-click, image drop, fling)
+```
+
+`npm test` doesn't start Electron; GitHub Actions runs it before building a release. `test:real-input` takes over the mouse for about
+half a minute and needs Accessibility permission for your terminal (System Settings › Privacy & Security › Accessibility). It runs the
+dev build with a temporary data folder, so your settings and chat history are left alone.
+
 <details>
 <summary>Project layout</summary>
 
@@ -178,8 +190,9 @@ scripts/
   build-mac.sh           Build script (--dmg / --arch arm64|x64 / --install)
   make-icons.js          Regenerate icons (npm run icons)
   dmg-readme.txt         Read-me included in the disk image
-  debug/                 Small debugging tools (inspect pages, screenshots, simulated drags)
-.github/workflows/       Builds and publishes to Releases when a version tag is pushed
+  debug/                 Small debugging tools (inspect pages, screenshots, real-mouse test real-input.mjs + mouse.swift)
+test/                    Unit tests (node --test, no Electron needed)
+.github/workflows/       Runs the tests, then builds and publishes to Releases when a version tag is pushed
 ```
 
 `npm run dev` starts with debugging ports open: main process on 9334, pages on 9333. When you add interface text, put both the Chinese and English versions into `desktop/i18n/i18n.js`.

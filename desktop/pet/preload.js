@@ -1,5 +1,5 @@
 // 桌宠窗口的 preload：只暴露窗口控制原语，渲染端拿不到 Node / Electron。
-//   setBounds        宠物窗口逐帧跟随（窗口内容区坐标 + 包围盒 + 精灵在窗口内的偏移）
+//   setBounds        宠物窗口逐帧跟随（窗口内容区坐标 + 宠物尺寸 + 精灵在窗口内的偏移）
 //   setInteractive   光标进/出她身上时翻转点击穿透
 //   setInputBusy     拖拽 / 右键菜单期间：主进程绝不翻回穿透（翻了拖拽就断）
 //   showContextMenu  右键 → 主进程弹系统原生菜单；关闭时回调 onMenuClosed
@@ -9,8 +9,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('petBridge', {
-  setBounds(x, y, width, height, boxX, boxY, size, bottomPad, vx, vy, offX, offY) {
-    ipcRenderer.send('pet:set-bounds', { x, y, width, height, boxX, boxY, size, bottomPad, vx, vy, offX, offY });
+  setBounds(b) {
+    const { x, y, width, height, size, bottomPad, offX, offY } = b || {};
+    ipcRenderer.send('pet:set-bounds', { x, y, width, height, size, bottomPad, offX, offY });
   },
   setInteractive(interactive) {
     ipcRenderer.send('pet:set-interactive', !!interactive);

@@ -659,4 +659,6 @@ module.exports = {
   testKey,
   resetCaches,
   petSystemPrompt,
+  /** 只给单测用（test/llm.test.js） */
+  _internal: { openaiPayload, anthropicPayload, splitImageTag, url, errorFrom, postCompletion },
 };

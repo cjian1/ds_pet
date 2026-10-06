@@ -165,6 +165,17 @@ npm run install-app   # 打包并直接装进「应用程序」
 
 打包只用到 macOS 自带的工具（`ditto` / `codesign` / `hdiutil`），不需要苹果开发者账号。
 
+测试：
+
+```bash
+npm run check             # 语法检查
+npm test                  # 单元测试（设置规整、各家 AI 接口的请求与流式解析、本地服务、点击穿透判定、中英文案与素材）
+npm run test:real-input   # 用真实的系统鼠标把桌宠交互走一遍（点击、穿透、拖拽、右键、拖图、甩出去）
+```
+
+`npm test` 不需要启动 Electron，推送版本 tag 时 GitHub Actions 会先跑它再打包。`test:real-input` 会接管鼠标半分钟左右，
+需要先在「系统设置 › 隐私与安全性 › 辅助功能」里给运行它的终端开权限；它在临时数据目录里启动开发版，不会动你的设置和聊天记录。
+
 <details>
 <summary>项目结构</summary>
 
@@ -181,8 +192,9 @@ scripts/
   build-mac.sh           打包脚本（--dmg / --arch arm64|x64 / --install）
   make-icons.js          重新生成图标（npm run icons）
   dmg-readme.txt         安装镜像里附带的说明
-  debug/                 开发调试小工具（读页面状态、截图、模拟拖拽）
-.github/workflows/       推送版本 tag 后自动打包并发布到 Releases
+  debug/                 开发调试小工具（读页面状态、截图、真实鼠标测试 real-input.mjs + mouse.swift）
+test/                    单元测试（node --test，不需要 Electron）
+.github/workflows/       推送版本 tag 后先跑测试，再自动打包并发布到 Releases
 ```
 
 `npm run dev` 会带上调试端口启动：主进程 9334、页面 9333。新增界面文字请同时写进 `desktop/i18n/i18n.js` 的中英两栏。

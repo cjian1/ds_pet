@@ -7,18 +7,15 @@
  * macOS 不让无边框窗口越过菜单栏，窗口被顶住时把「实际落位」回传，渲染端把精灵在窗口内挪过去，
  * 宠物因此仍能贴到屏幕最上沿。
  *
- * 输入：窗口默认整窗点击穿透（透明处不挡下面的应用），光标压到她身上才变成可交互；
+ * 输入：窗口默认整窗点击穿透（透明处不挡下面的应用），光标压到她身体（HIT_BOX）上才变成可交互；
+ * 渲染端（转发的 mousemove）和这里的 60ms 光标轮询用同一块区域判定（见 pointer-target.js）。
  * 拖拽 / 右键菜单期间由渲染端上报「正在用输入」，这段时间绝不翻回穿透（否则拖到一半会断）。
  */
 const { BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('node:path');
-const { decideWindowIgnore } = require('./pointer-target.js');
+const { decideWindowIgnore, HIT_BOX, POINTER_POLL_MS } = require('./pointer-target.js');
 const { store } = require('./store');
 const { API, ORIGIN } = require('./service');
-
-const POINTER_POLL_MS = 60;
-/** 动画舞台 640×360 中她身体所在的区域（与 shared HIT_BOX 一致） */
-const HIT_BOX = { x0: 200, y0: 50, x1: 440, y1: 335 };
 
 let win = null;
 let pointerTimer = null;
@@ -91,8 +88,9 @@ function create() {
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    // 非激活浮动面板（NSWindowStyleMaskNonactivatingPanel）：点她、拖她都不会让你正在用的应用失去焦点，
-    // 也能浮在全屏应用上方；acceptFirstMouse 让第一下点击直接生效（不会先被「激活窗口」吃掉）
+    // panel：能浮在全屏应用上方。注意它挡不住「点击激活本应用」（Electron 的 panel 是 NSWindow 子类，
+    // 实测见 scripts/debug/real-input.mjs），焦点由 focus-return.js 在交互结束后还回去。
+    // acceptFirstMouse 让第一下点击直接生效（不会先被「激活窗口」吃掉）
     type: 'panel',
     acceptFirstMouse: true,
     roundedCorners: false,
@@ -150,8 +148,12 @@ function create() {
     if (!win || win.isDestroyed() || !win.isVisible()) return;
     const b = win.getBounds();
     if (b.width < 8 || b.height < 8) return;
-    const next = decideWindowIgnore(b, screen.getCursorScreenPoint(), ignoring, inputBusy, spriteOffset);
+    const p = screen.getCursorScreenPoint();
+    const next = decideWindowIgnore(b, p, inputBusy, spriteOffset);
     if (next !== ignoring) setIgnore(win, next);
+    // 光标在她窗口里：让 focus-return 记下你正在用的应用（点她之后把焦点还回去）
+    const near = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+    if (near && hooks.onPointerNear) hooks.onPointerNear();
   }, POINTER_POLL_MS);
 
   w.on('closed', () => {
@@ -238,7 +240,7 @@ function pushDisplays() {
   }, 300);
 }
 
-/** IPC 只注册一次；hooks 由 app 控制器提供（右键菜单 / 打开聊天 / 移动通知） */
+/** IPC 只注册一次；hooks 由 app 控制器提供（右键菜单 / 打开聊天 / 移动通知 / 焦点归还） */
 function init(h) {
   hooks = h || {};
 
@@ -281,6 +283,7 @@ function init(h) {
   ipcMain.on('pet:input-busy', (event, busy) => {
     if (!isPetSender(event)) return;
     inputBusy = !!busy;
+    if (hooks.onInputBusy) hooks.onInputBusy(inputBusy);
   });
 
   ipcMain.on('pet:context-menu', (event) => {

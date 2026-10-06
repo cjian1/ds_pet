@@ -10,7 +10,9 @@
     "dist:all": "bash scripts/build-mac.sh --dmg --arch arm64 && bash scripts/build-mac.sh --dmg --arch x64",
     "install-app": "bash scripts/build-mac.sh --install",
     "icons": "electron scripts/make-icons.js",
-    "check": "for f in desktop/main/*.js desktop/pet/*.js desktop/chat/*.js desktop/settings/*.js desktop/i18n/*.js; do node --check \"$f\" || exit 1; done"
+    "check": "for f in desktop/main/*.js desktop/pet/*.js desktop/chat/*.js desktop/settings/*.js desktop/i18n/*.js; do node --check \"$f\" || exit 1; done",
+    "test": "node --test test/*.test.js",
+    "test:real-input": "node scripts/debug/real-input.mjs"
   },
   "devDependencies": {
     "electron": "43.7.7"

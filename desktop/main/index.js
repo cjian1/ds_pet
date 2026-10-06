@@ -2,7 +2,7 @@
 /**
  * ds_pet —— 应用入口（基于 PC2005-cloud/dsh-pet 二次创作）。
  *
- * 一个进程管全部：桌宠窗口、菜单栏图标、聊天面板、设置窗口、DeepSeek 调用、数据存储。
+ * 一个进程管全部：桌宠窗口、菜单栏图标、聊天面板、设置窗口、AI 服务调用（多家服务商，见 providers.js）、数据存储。
  * 关掉所有窗口不会退出（她还在桌面上）；退出只有 ⌘Q / 菜单「退出」。
  */
 const {
@@ -45,9 +45,12 @@ const chatWindow = require('./chat-window');
 const settingsWindow = require('./settings-window');
 const { migrate } = require('./migrate');
 const Providers = require('./providers');
+const { createFocusReturn, macSystem } = require('./focus-return');
 
 const RES = path.join(__dirname, '..', 'resources');
 
+/** 点她 / 拖她之后把焦点还给你原来在用的应用（见 focus-return.js） */
+const focusReturn = createFocusReturn(macSystem());
 let tray = null;
 let greeted = false;
 const LINKS = {
@@ -105,11 +108,13 @@ function setVisible(visible) {
 }
 
 function openChat(opts = {}) {
+  focusReturn.cancel();
   chatWindow.show();
   if (opts.image) chatWindow.send('chat:attach', { image: opts.image, autoSend: true });
 }
 
 async function pickImage() {
+  focusReturn.cancel();
   app.focus({ steal: true });
   const res = await dialog.showOpenDialog({
     title: t('pick.title'),
@@ -127,6 +132,7 @@ async function pickImage() {
 }
 
 function about() {
+  focusReturn.cancel();
   app.focus({ steal: true });
   app.showAboutPanel();
 }
@@ -490,6 +496,9 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('will-quit', () => globalShortcut.unregisterAll());
 
+  app.on('did-become-active', () => focusReturn.becameActive());
+  app.on('did-resign-active', () => focusReturn.resignedActive());
+
   app.whenReady().then(() => {
     service.installHandler();
     store.load();
@@ -520,10 +529,13 @@ if (!app.requestSingleInstanceLock()) {
       onOpenChat: (payload) => openChat(payload),
       onMoved: () => chatWindow.follow(),
       onReady: onPetReady,
+      onPointerNear: () => focusReturn.pointerNear(),
+      onInputBusy: (busy) => focusReturn.interaction(busy),
     });
     chatWindow.setBodyRectProvider(petWindow.bodyRect);
     settingsWindow.init({
       onShow: () => {
+        focusReturn.cancel();
         if (app.dock) app.dock.show();
         app.focus({ steal: true });
       },
@@ -533,7 +545,7 @@ if (!app.requestSingleInstanceLock()) {
     if (store.get().app.visible) petWindow.create();
     shortcutOk = registerShortcut();
     // 开发态调试把手（node --inspect 连上主进程后可直接调用）
-    if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat, petConfig };
+    if (!app.isPackaged) global.__whale = { store, petWindow, chatWindow, settingsWindow, menus, ctx, llm, openChat, petConfig, focusReturn };
 
     // 登录项与设置对齐（用户可能在系统设置里手动关过）
     if (app.isPackaged) {

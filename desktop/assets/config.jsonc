@@ -1,6 +1,6 @@
-// dsh-pet 配置（JSONC：允许 // 和 /* */ 注释）
-// 说明：浏览器端启动时通过 /dsh-pet-7340/config.jsonc 拉取；任何字段缺失/写错都会
-//       在加载层显式报错（控制台可见），不做静默兜底——配置是完整的事实来源。
+// 桌宠包内默认配置（JSONC：允许 // 和 /* */ 注释；结构沿用 dsh-pet 上游）
+// 说明：主进程读取它，再用设置窗口里的用户设置覆盖（见 desktop/main/store.js 的 petConfig），
+//       渲染端经 deskpet://app/api/config 拿到合成后的结果。
 {
   // ===================== 碎碎念（系统提示词人设，全局唯一，所有启用碎碎念的宠物共用） =====================
   // 宠物开启碎碎念（pets[].whisperEnabled = true）时，按 eventsRefreshSec.whisper 周期
@@ -56,11 +56,6 @@
     "就一碗": "抱着超大碗说要来你家吃饭就一碗，适合蹭饭、饭量大、登门讨饭",
     "Ciallo": "比耶眨眼卖萌问候 Ciallo～，适合打招呼、元气开场、卖萌"
   },
-  // ===================== 系统通知总开关 =====================
-  // 对话完成 / 生成失败 / 输出截断 / 权限申请 / 用户选择 在窗口失焦时弹出系统级通知（桌面右下角）。
-  // 不需要时改为 false（修改后刷新或重启生效）。必填布尔值，缺失即配置错误；
-  // 也可在用户配置（main-config.jsonc）顶层覆盖，设置页保存宠物时会保留该字段。
-  "notificationsEnabled": true,
   // ===================== 拖拽抛掷：锁定在当前屏幕（根字段，不属于 physics） =====================
   // 多屏用户：true = 甩出去的宠物只在松手时所在那块屏幕内弹（屏缝当墙，不飞到隔壁屏）；
   // false（默认）= 屏缝两侧都有屏时照常跨屏飞行、落到隔壁屏（现状）。
@@ -68,21 +63,6 @@
   // 必填布尔值，缺失即配置错误；也可在用户配置（main-config.jsonc）顶层覆盖，设置页开关写的就是它。
   // 仅影响桌面模式（浏览器 overlay 本来就只在视口内弹）。改动后刷新或重启生效。
   "confineToScreen": false,
-  // ===================== 工作状态联动文案（条目级，与 animations/physics 同级；种类文件 pet/<名>-config.json 顶层可覆盖） =====================
-  // 工作状态气泡文本（pets[].workStatusEnabled 开启时展示；仅在 events.workStatus 动画触发时弹）。
-  // 结构 = 二维数组，外层索引即档位（与 events.workStatus 动画索引一一对应，勿在中间插入新档）：
-  //   0 thinking（turn/start）/ 1 working（tool/call）/ 2 result（tool/result）/
-  //   3 waiting（approval/asked）/ 4 success（turn/end completed）/ 5 error（turn/end error/max-tokens）
-  // 每档内是多个备选句，播放时随机抽一句（想固定单句就只写一个；想换文案只改这里）。
-  // 省略整个字段 = 不弹工作状态气泡文本（仍播动画）；省略某档 = 该档不显示文本。
-  "workStatusTexts": [
-    ["正在认真想下一步呢", "让我整理一下思路~", "正在梳理接下来要做什么"],
-    ["正在处理任务呢", "这一步正在进行中哦", "正在继续干活呢，别打扰我~"],
-    ["这一步处理好啦，接着看下一步", "搞定一步，继续看看哦~"],
-    ["需要你确认一下呢", "这里要等你看一下哦", "轮到你来决定啦，等你~"],
-    ["这一轮搞定啦，真棒！", "任务完成咯，可以摸鱼啦~"],
-    ["这一步好像没跑通呢", "刚才的操作遇到点问题哦", "这里卡了一下，再等等你呢"]
-  ],
   // ===================== 宠物物理（拖拽抛掷手感，全局，所有宠物共用） =====================
   // gravity：抛掷下落/反弹的基础重力（px/s²）。默认 1400（数值越大落得越快）；0 = 无重力（合法，
   //   抛掷后匀速直线飞行/永不回落，配合 restitution/groundFriction=0 即纯无重力漂浮）。
@@ -92,49 +72,16 @@
   //   抛掷可飞出屏幕顶部（超出可视区域，重力仍会拉回落）。默认 true。
   // throwPower：总力度（拖拽/抛掷输出增益）。弹簧跟手（K/C）、甩抛初速与软上限 3600 整体 ×p：
   //   1.0 = 现状；>1 = 跟手更贴、甩得更猛、可达到的上限更高；<1 = 松弛、更易温柔放下。必须 > 0。
-  // petCollision：多宠物互相碰撞开关。true = 飞行中被甩出的宠物撞到其它宠物时，
-  //   按动量守恒 + 恢复系数 0.995 弹开（质量 ∝ size²）；false = 关闭（默认，宠物互相穿过）。
+  //   （设置窗口里的「抛掷力度」会覆盖它）
   "physics": {
     "gravity": 1400,
     "restitution": 0.78,
     "groundFriction": 2.5,
     "ceilingBounce": true,
-    "throwPower": 1.0,
-    "petCollision": false
+    "throwPower": 1.0
   },
-  // ===================== 默认宠物列表（多开） =====================
-  // pets 数组定义默认宠物；「设置页 → 添加宠物」的默认模板取 pets[0]（main）。
-  // 每个宠物独立：name（显示名，可重复：悬浮提示 / AI 人设追加「你的名字是X」/ 未来命令行定位的
-  //   显示层。可省略——缺失或留空按该宠物 id 处理并告警，兼容旧配置）、
-  // id（唯一标识，程序定位用：素材/记忆/端点参数都按它，绝不重叠，冲突即配置错误）、
-  // size（宽度 px，高度自动 = size × 9/16）、
-  // balanceEnabled（是否启用余额功能：true=触发余额动画+显示余额气泡；false=该宠物完全禁用。
-  //   必填布尔值，缺失即配置错误）、display（显示位置，必填四值之一：
-  //   web=仅浏览器 overlay / desktop=仅桌面模式（Electron 透明窗）/ both=两者/ none=都不显示。
-  //   缺失按默认 both 处理并告警（兼容 ≤0.2.0 旧配置），写了非法值即配置错误；桌面模式渲染
-  //   display 含 desktop/both 的全部宠物，每只一个局部小窗）、
-  // position（corner: 四角之一；marginX/marginY: 距所属角落偏移 px）
-  "pets": [
-    {
-      "name": "蓝毛小女仆",
-      "id": "main",
-      "size": 462,
-      "balanceEnabled": true,
-      // 碎碎念默认开启：每次生成都会调用当前对话的模型。本地 LLM 单并发时，
-      // 后台碎碎念会顶掉正在跑的任务的 KV cache（与 DSH 多子代理同因）。
-      // 不需要碎碎念的宠物改为 false（设置页也可开关）。
-      "whisperEnabled": true,
-      // 工作状态联动默认开启：监听 DSH 会话事件（工具调用等），按
-      // animations.events.workStatus 数组切档位动画 + 气泡（仅监听，不调用模型）。
-      "workStatusEnabled": true,
-      "display": "both",
-      "position": {
-        "corner": "top-right",
-        "marginX": 24,
-        "marginY": 100
-      }
-    }
-  ],
+  // 宠物本身（名字 / 大小 / 角落 / 碎碎念与余额开关）由主进程按用户设置生成 pets 列表（store.js petConfig），
+  // 这里不再配置。
 
   // ===================== 动作动画池配置 =====================
   // 动画素材目录（用户自定义 / 覆盖包内素材）：
@@ -224,21 +171,14 @@
         "碎碎念-发呆碎碎念",
         "碎碎念-对屏碎碎念"
       ],
-      // 工作状态联动（pets[].workStatusEnabled 开启时）：按索引 = 状态档位，勿在中间插入新档
-      //（新档只可追加到末尾，否则已生效配置的档位含义错位）：
-      //   index 0 = thinking（turn/start 回合开）
-      //   index 1 = working（tool/call 工具调用）
-      //   index 2 = result（tool/result 工具完成回整理）
-      //   index 3 = waiting（approval/asked 等待批准）
-      //   index 4 = success（turn/end completed 完成）
-      //   index 5 = error（turn/end error/max-tokens 出错/达上限）
+      // 工作状态：上游用它联动 DSH 会话状态；独立版没有这类事件，这组动画只能从右键「动作」菜单点播
       "workStatus": [
-        "工作状态-思考冒泡",      // index 0 thinking（turn/start 回合开）
-        "工作状态-忙碌点按",      // index 1 working（tool/call 工具调用）
-        "工作状态-清点归档",      // index 2 result（tool/result 工具完成回整理）
-        "工作状态-原地踱步张望",  // index 3 waiting（approval/asked 等待批准）
-        "工作状态-雀跃庆祝",      // index 4 success（turn/end completed 完成）
-        "工作状态-垂头叹气冒汗"   // index 5 error（turn/end error/max-tokens 出错/达上限）
+        "工作状态-思考冒泡",
+        "工作状态-忙碌点按",
+        "工作状态-清点归档",
+        "工作状态-原地踱步张望",
+        "工作状态-雀跃庆祝",
+        "工作状态-垂头叹气冒汗"
       ]
     }
   },

@@ -506,5 +506,10 @@
     if (doc.documentElement) doc.documentElement.lang = normalize(lang) === 'en' ? 'en' : 'zh-CN';
   }
 
-  return { t, has, anim, apply, normalize, LANGS: ['zh', 'en'] };
+  /** 全部文案键（单测用来检查每条都有中英两份） */
+  function keys() {
+    return Object.keys(S);
+  }
+
+  return { t, has, anim, apply, normalize, keys, LANGS: ['zh', 'en'] };
 });

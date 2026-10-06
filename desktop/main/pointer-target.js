@@ -1,64 +1,48 @@
 /**
- * dsh-pet desktop helper —— 点击穿透「兜底通道」的纯判定（issue #55 报告者补丁的逻辑部分）。
+ * 点击穿透「兜底通道」的纯判定（源自 dsh-pet 上游 issue #55 报告者补丁的逻辑部分）。
  *
- * 背景：窗口默认整窗点击穿透（`setIgnoreMouseEvents(true, { forward: true })`），只靠 Electron 的
- * forward 低级鼠标钩子把 mousemove 转发进渲染端，渲染端再做命中判定并 IPC 回来翻转可交互——
- * **整条链路只有一个入口**。该钩子在 Windows 上会静默失效（回调超时被系统摘掉、或被其它软件的
- * 钩子干扰），失效后没有任何退路：光标悬浮不触发手套光标、拖不动、点击与右键全无反应。
+ * 背景：窗口默认整窗点击穿透（`setIgnoreMouseEvents(true, { forward: true })`），渲染端靠转发进来的
+ * mousemove 做命中判定再 IPC 回来翻转可交互。这条链路只有一个入口：转发失效时（上游在 Windows 上
+ * 遇到过），或者系统拖拽文件期间（根本没有 mousemove），就没有任何退路。所以主进程另外每 60ms
+ * 按真实光标位置判定一次。
  *
- * 这里把「按真实光标位置决定要不要可交互」抽成纯函数：不 require('electron')，可被 node:test
- * 直接加载单测。主进程侧只负责 60ms 轮询取光标 + 调用本函数 + 翻转窗口。
+ * 两条通道必须圈**同一块区域**：她的身体（HIT_BOX）。区域不一致时较大的那条会赢，
+ * 她身边的透明区域就会挡住下面应用的点击。
  *
+ * 这里不 require('electron')，可被 node:test 直接加载单测（test/pointer-target.test.js）。
  * 坐标系：全部用 DIP（`win.getBounds()` 与 `screen.getCursorScreenPoint()` 同为 DIP，可比）。
  */
 
 'use strict';
 
-/** 宠物身体命中区（画布坐标，与 src/shared/constants.ts 的 HIT_BOX 一致；守卫测试钉住二者同步） */
+/** 宠物身体命中区（画布坐标，与 desktop/pet/shared-core.js 的 HIT_BOX 一致；测试钉住二者同步） */
 const HIT_BOX = { x0: 200, y0: 50, x1: 440, y1: 335 };
-/** 动画画布尺寸：高取 shared 的 CANVAS_H，宽与 sprite.js / shared 一样用字面量 640（shared 未导出宽） */
+/** 动画画布尺寸与脚底线（与 shared-core 的 CANVAS_H / FEET_Y 一致；宽 640 是 sprite.js 里的字面量） */
 const CANVAS_H = 360;
+const FEET_Y = 330;
 const STAGE_W = 640;
 
 /**
- * 窗口矩形 → 宠物身体命中区的屏幕矩形（DIP）。
- * 窗口 = 宠物包围盒 + 四周各半只宠物的余量（renderer 的 WINDOW_MARGIN_RATIO = 0.5）：
- * 横向 `margin = round(width / 4)`、stageW = width − 2×margin；纵向从窗口顶边往下 margin 才是画布顶边
- * （底部还多一个 bottomPad，命中区计算用不到）。判定公式与渲染端 sprite.js 的命中判定同源，
- * 故两条通道的判定区域严格一致（报告者补丁里用 width/4 内缩会覆盖整个画布，比身体大一倍多）。
+ * 窗口矩形 → 她身体命中区的屏幕矩形（DIP），与渲染端 sprite.js 的 hitRect 同一公式。
+ * 窗口 = 宠物包围盒 + 四周各半只宠物的余量（WINDOW_MARGIN_RATIO = 0.5），所以宽 = 2 × 宠物尺寸：
+ * margin = width / 4、stageW = width − 2×margin。舞台被 translateY(bottomPad) 下移了一截
+ * （给脚底留余量），命中区也要跟着下移。
+ *
+ * @param {{x:number,y:number,width:number,height:number}} bounds 窗口矩形
+ * @param {{x:number,y:number}} [offset] 精灵在窗口内的实际偏移（窗口被菜单栏顶住时会变）；缺省 = 余量处
  */
-/**
- * 整块动画画面（sprite 舞台）的屏幕矩形。
- * 与 spriteHitRect 的区别：后者只圈躯干（HIT_BOX），本函数圈的是**整张画面**，用来决定
- * "光标算不算在她身上"。拖文件进来时用户瞄的是整个人，只认躯干会让窗口一直保持穿透，
- * macOS 就不会把 drop 交给它 —— 这正是"拖图没反应"的原因。
- */
-function spriteStageRect(bounds, offset) {
-  const margin = Math.round(bounds.width / 4);
-  const stageW = bounds.width - margin * 2;
-  const stageH = (stageW * CANVAS_H) / STAGE_W;
-  const ox = offset && Number.isFinite(offset.x) ? offset.x : margin;
-  const oy = offset && Number.isFinite(offset.y) ? offset.y : margin;
-  return {
-    left: bounds.x + ox,
-    top: bounds.y + oy,
-    right: bounds.x + ox + stageW,
-    bottom: bounds.y + oy + stageH,
-  };
-}
-
 function spriteHitRect(bounds, offset) {
   const margin = Math.round(bounds.width / 4);
   const stageW = bounds.width - margin * 2;
   const stageH = (stageW * CANVAS_H) / STAGE_W;
-  // offset = 精灵在窗口内的实际偏移（DIP）。缺省仍是"钉在余量处"的老行为。
+  const bottomPad = (stageH * (CANVAS_H - FEET_Y)) / CANVAS_H;
   const ox = offset && Number.isFinite(offset.x) ? offset.x : margin;
   const oy = offset && Number.isFinite(offset.y) ? offset.y : margin;
   return {
     left: bounds.x + ox + (HIT_BOX.x0 / STAGE_W) * stageW,
-    top: bounds.y + oy + (HIT_BOX.y0 / CANVAS_H) * stageH,
+    top: bounds.y + oy + bottomPad + (HIT_BOX.y0 / CANVAS_H) * stageH,
     right: bounds.x + ox + (HIT_BOX.x1 / STAGE_W) * stageW,
-    bottom: bounds.y + oy + (HIT_BOX.y1 / CANVAS_H) * stageH,
+    bottom: bounds.y + oy + bottomPad + (HIT_BOX.y1 / CANVAS_H) * stageH,
   };
 }
 
@@ -66,47 +50,31 @@ function spriteHitRect(bounds, offset) {
 const POINTER_POLL_MS = 60;
 
 /**
- * 该不该让窗口保持穿透（= `setIgnoreMouseEvents` 的第一个参数）。
+ * 该不该让窗口穿透（= `setIgnoreMouseEvents` 的第一个参数）。
  *
- * 规则（与 issue #55 报告者实测的表一致）：
- *  - 渲染端正拿着鼠标输入（拖拽中 / 菜单开着 / 对话弹窗开着）→ **不穿透**，最高优先级；
- *  - 光标在宠物身体上 → 不穿透（可交互）；
- *  - 光标在窗口内、宠物外 → **保持当前状态**：否则渲染端自绘的右键菜单/对话弹窗，鼠标一移出身体
- *    就立刻变穿透，点不到；
- *  - 光标在窗口外 → 恢复穿透（透明像素不挡下层应用）。
+ *  - 渲染端正拿着鼠标输入（拖拽中 / 右键菜单开着）→ **不穿透**，最高优先级；
+ *  - 光标在她身上 → 不穿透（可交互）；
+ *  - 其它地方（窗口余量、身边的透明画面、窗口外）→ 穿透，点击落到下面的应用。
  *
- * 为什么 busy 必须优先于位置判定（0.2.10 的回归）：本函数判定的是**光标与窗口矩形**的关系，
- * 而窗口矩形比宠物身体大一圈（四周各半只宠物的余量）。拖拽时宠物由 rAF 弹簧追赶光标、**滞后**于
- * 光标；甩得快时滞后量超过那一圈余量，光标就落在矩形外 → 判成"窗外" → 翻回穿透 → 渲染端正在
- * 拖拽的 window 级 pointermove/pointerup 全断（鼠标还按着，宠物却按旧速度"飞"出去；速度不是被
- * 估算出来的——收不到 pointermove 就采不到新轨迹，连松手的 pointerup 都没人报，轨迹停在最后一次
- * 采样上继续积分）。所以"正拿着输入"这件事必须能**否决**位置判定，而不是被位置判定否决。
+ * 为什么 busy 必须优先于位置判定：窗口比她的身体大一圈，拖拽时她由弹簧追赶光标、**滞后**于光标；
+ * 甩得快时光标会跑出身体甚至窗口。此时翻回穿透，渲染端的 pointermove/pointerup 全断（鼠标还按着，
+ * 她却按最后一次采样的速度"飞"出去）。所以"正拿着输入"必须能否决位置判定，而且 busy 时位置完全不参与。
  *
- * 位置判定里**不含**拖拽容差：一旦 busy，位置完全不参与（任何"离得近才算"的阈值都会重新引入
- * "滞后量 > 余量"这个致命条件，正是 bug 本身）。
+ * 结果只取决于光标位置和 busy，与渲染端那条通道的判定一致，两边谁先翻转都不会互相打架。
  *
  * @param {{x:number,y:number,width:number,height:number}} bounds 窗口矩形（DIP）
  * @param {{x:number,y:number}} point 真实光标位置（screen.getCursorScreenPoint()，DIP）
- * @param {boolean} ignoring 窗口当前是否穿透（取自主进程的 windowIgnore 镜像，不用本地副本：
- *   渲染端那条通道也在翻转它，本地副本会与之失步）
- * @param {boolean} busy 渲染端是否正在用这个窗口的鼠标输入（拖拽中/菜单开/弹窗开，见 inputBusy）
+ * @param {boolean} busy 渲染端是否正在用这个窗口的鼠标输入（见 sprite.js 的 inputBusy）
+ * @param {{x:number,y:number}} [offset] 精灵在窗口内的偏移
  * @returns {boolean} 新的穿透状态
  */
-function decideWindowIgnore(bounds, point, ignoring, busy, offset) {
-  if (busy) return false; // 渲染端正拿着输入：绝不翻回穿透（翻了就断它的输入链）
-  const inWindow =
-    point.x >= bounds.x &&
-    point.x < bounds.x + bounds.width &&
-    point.y >= bounds.y &&
-    point.y < bounds.y + bounds.height;
-  if (!inWindow) return true; // 窗外：恢复穿透
-  // 用整张画面判定（而不是只认躯干）：目标是"用户觉得在她身上"的地方都能接住 drop
-  const r = spriteStageRect(bounds, offset);
-  const inSprite = point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom;
-  if (inSprite) return false;
-  return ignoring; // 窗口余量区：保持（菜单/弹窗可点）
+function decideWindowIgnore(bounds, point, busy, offset) {
+  if (busy) return false;
+  const r = spriteHitRect(bounds, offset);
+  const onBody = point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom;
+  return !onBody;
 }
 
 module.exports = {
-  HIT_BOX, CANVAS_H, STAGE_W, POINTER_POLL_MS, spriteHitRect, spriteStageRect, decideWindowIgnore,
+  HIT_BOX, CANVAS_H, FEET_Y, STAGE_W, POINTER_POLL_MS, spriteHitRect, decideWindowIgnore,
 };

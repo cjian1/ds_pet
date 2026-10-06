@@ -113,7 +113,12 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 /** 把任意输入规整成合法设置（未知字段丢弃、越界值夹回、类型不对回默认） */
 function sanitize(raw) {
-  const s = merge(DEFAULTS, isPlainObject(raw) ? raw : {});
+  // 先拷一份默认值：merge 会原样带上输入里没有的分组，下面又是就地改写，不拷就把 DEFAULTS 本身改掉了
+  const s = merge(structuredClone(DEFAULTS), isPlainObject(raw) ? raw : {});
+  // 分组被写坏（比如手改成 null / 数字）：整组回默认，否则下面一赋值就抛错，应用起不来
+  for (const k of Object.keys(DEFAULTS)) {
+    if (isPlainObject(DEFAULTS[k]) && !isPlainObject(s[k])) s[k] = structuredClone(DEFAULTS[k]);
+  }
   const pet = s.pet;
   pet.name = String(pet.name || '').trim().slice(0, 24);
   // 和某种语言的默认名字一样 = 没改过名字：存成空，切换语言时跟着变
@@ -164,9 +169,16 @@ function sanitize(raw) {
 
   if (s.position && !(Number.isFinite(s.position.rx) && Number.isFinite(s.position.ry))) s.position = null;
   s.onboarded = s.onboarded === true;
-  // 只保留已知顶层字段
+  // 只保留已知字段（顶层，以及 pet / talk / ai / app 各分组里）
   const known = {};
-  for (const k of Object.keys(DEFAULTS)) known[k] = s[k];
+  for (const k of Object.keys(DEFAULTS)) {
+    if (!isPlainObject(DEFAULTS[k])) {
+      known[k] = s[k];
+      continue;
+    }
+    known[k] = {};
+    for (const f of Object.keys(DEFAULTS[k])) known[k][f] = s[k][f];
+  }
   return known;
 }
 
@@ -312,7 +324,6 @@ function defaultPersona(lang = store.lang()) {
 
 /**
  * 渲染端要的配置（上游 readAllConfig 成品结构 {main: {...}}）：包内默认 + 用户设置覆盖。
- * 工作状态联动是 DSH 专属能力，独立版没有会话可联动，直接关掉。
  */
 function petConfig(s = store.get()) {
   const cfg = baseConfig();
@@ -324,7 +335,6 @@ function petConfig(s = store.get()) {
       size: s.pet.size,
       balanceEnabled: s.talk.balanceEnabled && hasKey && store.provider().balance,
       whisperEnabled: s.talk.whisperEnabled && hasKey,
-      workStatusEnabled: false,
       display: 'desktop',
       position: { corner: s.pet.corner, marginX: 24, marginY: 16 },
     },
@@ -333,7 +343,7 @@ function petConfig(s = store.get()) {
   cfg.chatImageEnabled = s.talk.chatImage;
   cfg.chatMemoryRounds = s.ai.memoryRounds;
   cfg.confineToScreen = s.pet.confineToScreen;
-  cfg.physics = Object.assign({}, cfg.physics, { throwPower: s.pet.throwPower, petCollision: false });
+  cfg.physics = Object.assign({}, cfg.physics, { throwPower: s.pet.throwPower });
   cfg.eventsRefreshSec = Object.assign({}, cfg.eventsRefreshSec, {
     whisper: s.talk.whisperIntervalSec,
     balance: 1800,
