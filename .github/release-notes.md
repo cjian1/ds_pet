@@ -1,13 +1,17 @@
 > ds_pet 基于 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT）二次创作。
 > ds_pet is a remix of [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (MIT).
 
-## 1.2.0 更新 / What's new
+## 1.2.1 更新 / What's new
 
-- 新增一键更新：设置 › 关于 里「检查更新」→「一键更新」，下载、校验、安装、重启全自动，设置和聊天记录都保留。
-  One-click updates: Settings › About → Check for updates → Update now downloads, verifies, installs and restarts for you. Settings and chat history are kept.
-- 有新版本时她会提醒你，菜单栏图标和右键菜单里点「更新到 x.y.z」就能更新；自动检查可以在设置里关掉。
-  She'll tell you when a new version is out, and Update to x.y.z in the menu bar or her right-click menu installs it. Automatic checks can be turned off in Settings.
-- 从 1.1.1 或更早版本升级：这一次请手动下载安装，之后的版本就能一键更新了。
+- 更省电：你离开电脑 5 分钟，她把手上的动作做完就歇着，不再播放动画，碰一下键盘或鼠标就醒；藏起来或锁屏时一切暂停。
+  Uses less power: after you've been away for 5 minutes she finishes what she's doing and rests without playing anything; touch the keyboard or mouse and she wakes up. Everything pauses while she's hidden or the screen is locked.
+- 改名字、走动、活跃度、甩出去的力度等设置立即生效，她不会再从头闪一下。
+  Changing her name, roaming, liveliness, throw strength and similar settings now applies instantly without reloading her.
+- 聊天回复更快出现；回复到一半点「停止」会保留已经说出的部分，不再提示失败。
+  Chat replies start showing sooner; pressing Stop halfway keeps what she already said instead of reporting an error.
+- 修正：她藏着时在聊天里回话，叫回来后会定格不动；藏着启动后从菜单栏点「说句话」没反应；窗口被系统改了大小后不复位。
+  Fixed: she could freeze after replying in chat while hidden; "Say something" from the menu bar did nothing if she started hidden; her window didn't recover after the system resized it.
+- 从 1.1.1 或更早版本升级：请手动下载安装一次，之后就能一键更新了。
   Coming from 1.1.1 or earlier? Install this version manually once; after that, updates take one click.
 
 ## 下载哪个？ / Which file?
