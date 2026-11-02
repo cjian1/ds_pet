@@ -1,6 +1,6 @@
 # 打 tag（如 v1.3.0）推上来：先在 macOS 和 Windows 上各跑一遍测试，再打包 Mac（Apple 芯片 + Intel）
 # 和 Windows（x64 + ARM：安装程序 + 便携版），全部打完后一起发布到 Releases。
-# 也可以在 Actions 页面手动运行（只打包，产物在本次运行的 Artifacts 里）。
+# 也可以在 Actions 页面手动运行：只打包（产物在本次运行的 Artifacts 里），另外在 x64 Windows 上实测安装与一键更新（windows-e2e）。
 name: Release
 
 on:
@@ -69,6 +69,52 @@ jobs:
           path: |
             dist/*.exe
             dist/*.zip
+
+  # 手动运行（Actions 页面 / gh workflow run）时，再在 x64 Windows 上真的装一遍：
+  # 静默安装 → 一键更新 → 登录项 → 卸载，然后用真实的鼠标键盘把桌宠交互走一遍。
+  # 打 tag 发布时不跑：界面测试偶尔会受机器状况影响，不拿它挡发布。
+  windows-e2e:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 安装打包依赖
+        run: npm ci --ignore-scripts
+
+      - name: 安装 NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
+            choco install nsis --no-progress -y
+          }
+
+      - name: 安装 → 一键更新 → 登录项 → 卸载
+        run: node scripts/debug/win-installer-e2e.mjs
+
+      - name: 真实鼠标键盘测试
+        run: node scripts/debug/win-real-input.mjs --exe dist/win-x64/ds_pet/ds_pet.exe
+
+      - name: 失败时截一张屏
+        if: failure()
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save((Join-Path $PWD 'e2e-screen.png'))
+
+      - name: 上传截屏
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-e2e-screen
+          path: e2e-screen.png
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

@@ -151,24 +151,30 @@ app.stderr.on('data', (d) => (stderr += d));
 let exited = false;
 app.on('exit', () => (exited = true));
 
-// 「你正在用的应用」：一个带输入框的小窗口（另一个进程），放在屏幕左上角，不和她重叠
-const probe = spawn(
-  'powershell.exe',
-  [
-    '-NoProfile',
-    '-Command',
-    "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.Form; $f.Text = '" +
-      PROBE +
-      "'; $f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(30, 30); $f.Size = New-Object System.Drawing.Size(380, 220);" +
-      " $l = New-Object System.Windows.Forms.Label; $l.Dock = 'Fill'; $l.TextAlign = 'MiddleCenter'; $l.BackColor = 'LightSkyBlue'; $l.Text = 'drag me';" +
-      " $l.Add_MouseDown({ $d = New-Object System.Windows.Forms.DataObject([System.Windows.Forms.DataFormats]::FileDrop, [string[]]@('" +
-      IMAGE.replace(/'/g, "''") +
-      "')); [void]$l.DoDragDrop($d, 'Copy') }); $f.Controls.Add($l);" +
-      " $t = New-Object System.Windows.Forms.TextBox; $t.Multiline = $true; $t.Dock = 'Top'; $t.Height = 70; $f.Controls.Add($t);" +
-      " [System.Windows.Forms.Application]::Run($f)",
-  ],
-  { stdio: 'ignore' },
-);
+/**
+ * 「你正在用的应用」：一个带输入框的小窗口（另一个进程）：上面是输入框，下面是拖图用的标签。
+ * 摆在她左边、不和她的窗口重叠（GitHub Actions 的屏幕只有 1024×768，固定位置会压到她）。坐标是 DIP。
+ */
+let probe = null;
+function startProbe(x, y, w, h) {
+  probe = spawn(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-Command',
+      "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.Form; $f.Text = '" +
+        PROBE +
+        `'; $f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(${x}, ${y}); $f.Size = New-Object System.Drawing.Size(${w}, ${h});` +
+        " $l = New-Object System.Windows.Forms.Label; $l.Dock = 'Fill'; $l.TextAlign = 'MiddleCenter'; $l.BackColor = 'LightSkyBlue'; $l.Text = 'drag me';" +
+        " $l.Add_MouseDown({ $d = New-Object System.Windows.Forms.DataObject([System.Windows.Forms.DataFormats]::FileDrop, [string[]]@('" +
+        IMAGE.replace(/'/g, "''") +
+        "')); [void]$l.DoDragDrop($d, 'Copy') }); $f.Controls.Add($l);" +
+        " $t = New-Object System.Windows.Forms.TextBox; $t.Multiline = $true; $t.Dock = 'Top'; $t.Height = 70; $f.Controls.Add($t);" +
+        ' [System.Windows.Forms.Application]::Run($f)',
+    ],
+    { stdio: 'ignore' },
+  );
+}
 
 let main;
 let pet;
@@ -179,7 +185,7 @@ const cleanup = async () => {
     /* 忽略 */
   }
   mouse.close();
-  probe.kill();
+  if (probe) probe.kill();
   main?.close();
   pet?.close();
   if (!exited) app.kill();
@@ -292,6 +298,9 @@ try {
   };
 
   let g = await geo();
+  const work = await main.eval("process.mainModule.require('electron').screen.getPrimaryDisplay().workArea");
+  const probeW = Math.max(200, Math.min(380, Math.round(g.win.x - work.x - 30)));
+  startProbe(work.x + 10, work.y + 10, probeW, 220);
   safeArea = await placeCatcher(g);
   if (!(await focusProbe())) throw new Error('焦点探针没能成为前台窗口：' + JSON.stringify(await front()));
   console.log(`桌宠窗口 ${g.win.x},${g.win.y} ${g.win.width}×${g.win.height}（DIP）；缩放 ${await main.eval("process.mainModule.require('electron').screen.getPrimaryDisplay().scaleFactor")}\n`);
@@ -418,13 +427,13 @@ try {
   check('快速甩：她被甩出去了', (await pet.eval('sprites[0].throwRef')) !== null);
   await waitFor(() => pet.eval('sprites[0].throwRef === null'), 10000, '落地');
   g = await geo();
-  const work = await main.eval(
+  const land = await main.eval(
     "process.mainModule.require('electron').screen.getDisplayNearestPoint(" + JSON.stringify({ x: Math.round(g.center.x), y: Math.round(g.center.y) }) + ').workArea',
   );
   const feet = g.stage.y + (g.stage.height * 330) / 360;
-  const floor = work.y + work.height;
-  const landed = Math.abs(feet - floor) <= 3 && g.hit.x >= work.x - 1 && g.hit.x + g.hit.width <= work.x + work.width + 1;
-  check('快速甩：落地后脚踩在工作区下沿（任务栏上面）、身体没出屏幕', landed, `脚底 ${Math.round(feet)}，工作区 ${work.x},${work.y} ${work.width}×${work.height}`);
+  const floor = land.y + land.height;
+  const landed = Math.abs(feet - floor) <= 3 && g.hit.x >= land.x - 1 && g.hit.x + g.hit.width <= land.x + land.width + 1;
+  check('快速甩：落地后脚踩在工作区下沿（任务栏上面）、身体没出屏幕', landed, `脚底 ${Math.round(feet)}，工作区 ${land.x},${land.y} ${land.width}×${land.height}`);
   await stillProbe('快速甩：不抢焦点');
 
   // 9. 全局快捷键 Ctrl+Alt+P：藏起来 / 叫出来
