@@ -17,6 +17,7 @@
     "test:real-input": "node scripts/debug/real-input.mjs",
     "test:real-input:win": "node scripts/debug/win-real-input.mjs",
     "test:update": "node scripts/debug/update-e2e.mjs",
+    "test:update:win": "node scripts/debug/win-installer-e2e.mjs",
     "test:energy": "node scripts/debug/energy-probe.mjs"
   },
   "devDependencies": {

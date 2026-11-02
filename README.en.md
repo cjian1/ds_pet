@@ -207,6 +207,7 @@ npm test                  # unit tests (settings, AI provider requests and strea
 npm run test:real-input   # drive the pet with the real system mouse (click, click-through, drag, right-click, image drop, fling)
 npm run test:real-input:win   # the same on Windows, plus: clicking or dragging her never steals focus, Ctrl+Alt+P, --quit
 npm run test:update       # one-click update end to end: build, then go old version → download → replace → restart as the new one in a temp folder
+npm run test:update:win   # Windows: silent install of an old version → one-click update → login item → uninstall (uses the real install location; run it on a VM or CI)
 ```
 
 `npm test` doesn't start Electron; GitHub Actions runs it before building a release. `test:real-input` takes over the mouse for about

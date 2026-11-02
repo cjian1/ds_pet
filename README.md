@@ -210,6 +210,7 @@ npm test                  # 单元测试（设置规整、各家 AI 接口的请
 npm run test:real-input   # 用真实的系统鼠标把桌宠交互走一遍（点击、穿透、拖拽、右键、拖图、甩出去）
 npm run test:real-input:win   # Windows 版的同一套（另外盯着点她、拖她会不会抢走别的窗口的焦点、Ctrl+Alt+P、--quit）
 npm run test:update       # 一键更新端到端：打包后在临时目录里走一遍「旧版本 → 下载 → 替换 → 重启成新版本」
+npm run test:update:win   # Windows 版：静默安装旧版本 → 一键更新 → 登录项 → 卸载（用真实的安装位置，只在虚拟机 / CI 上跑）
 ```
 
 `npm test` 不需要启动 Electron，推送版本 tag 时 GitHub Actions 会先跑它再打包。`test:real-input` 会接管鼠标半分钟左右，
