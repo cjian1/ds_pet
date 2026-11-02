@@ -22,7 +22,7 @@ const { nativeImage } = require('electron');
 const { store, ASSETS, memoryFile, uploadsDir, readJson, writeJsonAtomic } = require('./store');
 const Providers = require('./providers');
 
-const UA = 'ds_pet/1.1 (macOS desktop pet)';
+const UA = 'ds_pet/1.1 (' + (process.platform === 'win32' ? 'Windows' : 'macOS') + ' desktop pet)';
 const ANTHROPIC_VERSION = '2023-06-01';
 const t = (key, vars) => store.t(key, vars);
 const IMG_TAG = /\[图[:：]\s*([^\]\n]+?)\s*\]\s*$/;

@@ -1,4 +1,5 @@
-# 打 tag（如 v1.0.0）推上来，自动打包 Apple 芯片版 + Intel 版并发布到 Releases。
+# 打 tag（如 v1.3.0）推上来：先在 macOS 和 Windows 上各跑一遍测试，再打包 Mac（Apple 芯片 + Intel）
+# 和 Windows（x64 + ARM：安装程序 + 便携版），全部打完后一起发布到 Releases。
 # 也可以在 Actions 页面手动运行（只打包，产物在本次运行的 Artifacts 里）。
 name: Release
 
@@ -11,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  mac:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,15 +33,62 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: ds_pet-dmg
+          name: ds_pet-mac
           path: dist/*.dmg
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # 打包要用 resedit（改 exe 图标和版本信息）；--ignore-scripts：不用下载 Electron 本体，打包脚本自己下载 Windows 版
+      - name: 安装打包依赖
+        run: npm ci --ignore-scripts
+
+      - name: 单元测试（Windows）
+        run: npm test
+
+      - name: 安装 NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
+            choco install nsis --no-progress -y
+          }
+
+      - name: 打包（x64 + ARM：安装程序 + 便携版）
+        run: node scripts/build-win.mjs --arch all
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds_pet-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 取回两边的产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: 发布到 Releases
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.dmg \
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/* \
             --title "ds_pet $GITHUB_REF_NAME" \
             --notes-file .github/release-notes.md \
-          || gh release upload "$GITHUB_REF_NAME" dist/*.dmg --clobber
+          || gh release upload "$GITHUB_REF_NAME" dist/* --clobber

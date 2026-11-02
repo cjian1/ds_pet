@@ -68,7 +68,7 @@ C="${APP}/Contents"
 
 rm -f "${C}/Resources/default_app.asar" "${C}/Resources/electron.icns"
 mkdir -p "${C}/Resources/app"
-rsync -a --delete --exclude '.DS_Store' "${ROOT}/desktop/" "${C}/Resources/app/"
+rsync -a --delete --exclude '.DS_Store' --exclude '*.ico' "${ROOT}/desktop/" "${C}/Resources/app/"  # .ico 只有 Windows 版用
 cp "${ROOT}/desktop/resources/icon.icns" "${C}/Resources/app.icns"
 mv "${C}/MacOS/Electron" "${C}/MacOS/${EXE}"
 

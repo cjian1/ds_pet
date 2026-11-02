@@ -52,6 +52,12 @@ class FakeBrowserWindow {
   setVisibleOnAllWorkspaces() {}
   setIgnoreMouseEvents() {}
   setBackgroundThrottling() {}
+  setBackgroundColor(c) {
+    this.backgroundColor = c;
+  }
+  setTitleBarOverlay(o) {
+    this.titleBarOverlay = o;
+  }
   loadURL() {
     return Promise.resolve();
   }
@@ -140,6 +146,7 @@ const electron = {
   protocol: { registerSchemesAsPrivileged() {}, handle() {} },
   powerMonitor: { getSystemIdleTime: () => env.idleSeconds, on() {}, off() {} },
   Menu: { buildFromTemplate: (template) => template },
+  nativeTheme: { shouldUseDarkColors: false, on() {}, removeListener() {} },
 };
 
 const load = Module._load;

@@ -53,7 +53,7 @@ body {
   flex-direction: column;
   background: transparent;
   color: var(--text);
-  font: 13.5px/1.55 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  font: 13.5px/1.55 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
@@ -212,12 +212,12 @@ main::-webkit-scrollbar-thumb {
   border: 1px solid var(--her-border);
   border-bottom-left-radius: 6px;
   box-shadow: var(--shadow);
-  font-family: 'PetCandy', -apple-system, 'PingFang SC', sans-serif;
+  font-family: 'PetCandy', -apple-system, 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
   font-size: 14.5px;
 }
 /* 英文：上首软糖体的拉丁字母又宽又挤，换成系统圆体 */
 html[lang='en'] .her .bubble {
-  font-family: ui-rounded, 'SF Pro Rounded', -apple-system, sans-serif;
+  font-family: ui-rounded, 'SF Pro Rounded', -apple-system, 'Segoe UI', sans-serif;
   font-size: 14px;
   font-weight: 500;
 }

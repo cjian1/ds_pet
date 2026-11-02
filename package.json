@@ -1,23 +1,28 @@
 {
   "name": "ds_pet",
   "private": true,
-  "description": "ds_pet: a desktop pet for macOS — a remix of PC2005-cloud/dsh-pet. 住在 macOS 桌面上的蓝毛小女仆（基于 dsh-pet 二次创作）",
+  "description": "ds_pet: a desktop pet for macOS and Windows — a remix of PC2005-cloud/dsh-pet. 住在 macOS / Windows 桌面上的蓝毛小女仆（基于 dsh-pet 二次创作）",
   "license": "MIT",
   "scripts": {
     "start": "electron desktop",
     "dev": "electron desktop --inspect=9334 --remote-debugging-port=9333",
     "dist": "bash scripts/build-mac.sh --dmg",
     "dist:all": "bash scripts/build-mac.sh --dmg --arch arm64 && bash scripts/build-mac.sh --dmg --arch x64",
+    "dist:win": "node scripts/build-win.mjs --arch all",
     "install-app": "bash scripts/build-mac.sh --install",
     "icons": "electron scripts/make-icons.js",
+    "icons:win": "electron scripts/make-icons.js --win",
     "check": "for f in desktop/main/*.js desktop/pet/*.js desktop/chat/*.js desktop/settings/*.js desktop/i18n/*.js; do node --check \"$f\" || exit 1; done",
     "test": "node --test test/*.test.js",
     "test:real-input": "node scripts/debug/real-input.mjs",
+    "test:real-input:win": "node scripts/debug/win-real-input.mjs",
     "test:update": "node scripts/debug/update-e2e.mjs",
     "test:energy": "node scripts/debug/energy-probe.mjs"
   },
   "devDependencies": {
-    "electron": "43.7.7"
+    "electron": "43.7.7",
+    "pe-library": "2.0.1",
+    "resedit": "3.1.0"
   },
   "allowScripts": {
     "electron": true

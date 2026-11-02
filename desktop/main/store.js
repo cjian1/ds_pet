@@ -1,6 +1,6 @@
 'use strict';
 /**
- * 设置与数据：~/Library/Application Support/ds_pet/
+ * 设置与数据：macOS 在 ~/Library/Application Support/ds_pet/，Windows 在 %APPDATA%\ds_pet\
  *
  *   settings.json   用户设置（含各服务商的 API Key，权限 600）
  *   memory.json     聊天记录（结构与 dsh-pet 上游一致：{main: {main: {messages: [...]}}}）
@@ -193,12 +193,32 @@ function readJson(file) {
   }
 }
 
-/** 原子写（先写临时文件再改名），可指定权限 */
+/**
+ * 改名覆盖。Windows 上目标文件可能正被杀毒软件 / 搜索索引短暂占着（EPERM / EBUSY / EACCES），
+ * 稍等再试几次（总共不到 1 秒）；别的错误照常抛出。
+ */
+function renameWithRetry(from, to, rename = fs.renameSync) {
+  for (let i = 0; ; i++) {
+    try {
+      return rename(from, to);
+    } catch (e) {
+      if (i >= 8 || !['EPERM', 'EBUSY', 'EACCES'].includes(e && e.code)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (i + 1));
+    }
+  }
+}
+
+/** 原子写（先写临时文件再改名），可指定权限（Windows 上权限位不起作用） */
 function writeJsonAtomic(file, data, mode = 0o644) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.tmp-' + process.pid;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode });
-  fs.renameSync(tmp, file);
+  try {
+    renameWithRetry(tmp, file);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
   try {
     fs.chmodSync(file, mode);
   } catch {
@@ -392,5 +412,6 @@ module.exports = {
   loadJsonc,
   readJson,
   writeJsonAtomic,
+  renameWithRetry,
   sanitize,
 };
