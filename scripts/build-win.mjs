@@ -79,10 +79,23 @@ const step = (msg) => console.log('\x1b[1;34m==>\x1b[0m ' + msg);
 const mb = (file) => (fs.statSync(file).size / 1e6).toFixed(1) + ' MB';
 
 // ---------------------------------------------------------------- Electron 运行时
+/**
+ * 下载到 dest。网络出错（或服务器 5xx）最多再试两次：打一个安装程序要好几分钟，期间空着的连接会被服务器断开，
+ * 接下来那次下载要是复用了它就会报 fetch failed / ECONNABORTED（GitHub Actions 上实际遇到过）；重试会换新连接。
+ */
 async function download(url, dest) {
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok) throw new Error('下载失败 ' + res.status + '：' + url);
-  fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { redirect: 'follow' });
+      if (!res.ok) throw Object.assign(new Error('下载失败 ' + res.status + '：' + url), { retry: res.status >= 500 });
+      fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+      return;
+    } catch (e) {
+      if (attempt >= 3 || e.retry === false) throw e;
+      console.warn(`    下载出错（${(e.cause && e.cause.code) || e.message}），${attempt * 3} 秒后重试…`);
+      await new Promise((r) => setTimeout(r, attempt * 3000));
+    }
+  }
 }
 
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
