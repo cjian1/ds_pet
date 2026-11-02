@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 const I18n = require('../desktop/i18n/i18n.js');
 const U = require('../desktop/main/updater.js');
 
@@ -13,6 +14,8 @@ delete process.env.DS_PET_UPDATE_API;
 const ROOT = path.join(__dirname, '..');
 const t = (key, vars) => I18n.t('zh', key, vars);
 const NOTES = fs.readFileSync(path.join(ROOT, '.github', 'release-notes.md'), 'utf8');
+/** 要用到 bash / hdiutil / ditto 的测试只在 macOS 上跑 */
+const MAC_ONLY = process.platform !== 'darwin' && '需要 macOS（bash / hdiutil）';
 
 /** 一份像 GitHub 那样的发布 JSON */
 function release(version, extra = {}) {
@@ -37,7 +40,8 @@ process.on('exit', () => {
 function setup({ replies = [], packaged = true, current = '1.1.1', fetch } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ds_pet-updater-'));
   tmpDirs.push(tmp);
-  const exe = path.join(tmp, 'Applications', 'ds_pet.app', 'Contents', 'MacOS', 'ds_pet');
+  // 一律用 / 分隔：这是一份 macOS 的安装，在 Windows 上跑测试时也得长得像 macOS 路径（Node 在 Windows 上照样认 /）
+  const exe = path.join(tmp, 'Applications', 'ds_pet.app', 'Contents', 'MacOS', 'ds_pet').split(path.sep).join('/');
   fs.mkdirSync(path.dirname(exe), { recursive: true });
   fs.writeFileSync(exe, '');
   const calls = [];
@@ -51,6 +55,7 @@ function setup({ replies = [], packaged = true, current = '1.1.1', fetch } = {})
     t,
     lang: () => 'zh',
     arch: 'arm64',
+    platform: 'darwin',
     fetch: async (url, init = {}) => {
       calls.push({ url: String(url), headers: init.headers || {} });
       if (fetch) return fetch(url, init, calls.length);
@@ -127,7 +132,7 @@ test('hdiutil 输出里找挂载点', () => {
   assert.equal(U.mountPointOf('<dict></dict>'), null);
 });
 
-test('替换脚本：bash 语法正确，变量都加了花括号，没有中文', () => {
+test('替换脚本：bash 语法正确，变量都加了花括号，没有中文', { skip: MAC_ONLY }, () => {
   const file = path.join(os.tmpdir(), 'ds_pet-update-test.sh');
   fs.writeFileSync(file, U.UPDATE_SCRIPT);
   const r = spawnSync('/bin/bash', ['-n', file], { encoding: 'utf8' });
@@ -217,7 +222,7 @@ test('下载地址不是 GitHub 的：不去下载', async () => {
   assert.equal(calls.length, 1);
 });
 
-test('下载完、校验通过，但不是能挂载的安装包：报「打不开安装包」', async () => {
+test('下载完、校验通过，但不是能挂载的安装包：报「打不开安装包」', { skip: MAC_ONLY }, async () => {
   const { u, states } = setup({ replies: [json(release('1.2.0')), () => new Response('dmg!')] });
   await u.check({ manual: true });
   const st = await u.install();
@@ -311,7 +316,7 @@ function runScript({ staged = true, dataDir } = {}) {
   };
 }
 
-test('替换脚本：等旧进程退出 → 换成新版本 → 按路径重新打开', () => {
+test('替换脚本：等旧进程退出 → 换成新版本 → 按路径重新打开', { skip: MAC_ONLY }, () => {
   const r = runScript();
   assert.equal(r.status, 0, r.log);
   assert.equal(r.version, 'new');
@@ -321,7 +326,7 @@ test('替换脚本：等旧进程退出 → 换成新版本 → 按路径重新�
   assert.match(r.log, /update done/);
 });
 
-test('替换脚本：新版本拷不过去 → 旧版本原样留着，并重新打开旧版本', () => {
+test('替换脚本：新版本拷不过去 → 旧版本原样留着，并重新打开旧版本', { skip: MAC_ONLY }, () => {
   const r = runScript({ staged: false });
   assert.equal(r.status, 1);
   assert.equal(r.version, 'old');
@@ -330,7 +335,208 @@ test('替换脚本：新版本拷不过去 → 旧版本原样留着，并重新
   assert.match(r.log, /copy failed/);
 });
 
-test('替换脚本：带着自定义数据目录重新打开（开发和测试用）', () => {
+test('替换脚本：带着自定义数据目录重新打开（开发和测试用）', { skip: MAC_ONLY }, () => {
   const r = runScript({ dataDir: '/tmp/ds_pet data' });
   assert.equal(r.opened, '-n --env DS_PET_DATA_DIR=/tmp/ds_pet data ' + r.target);
+});
+
+// ---------------------------------------------------------------- Windows
+/** 一份带 Windows 安装包的发布（content = 安装程序的内容，用来算 sha256 和大小） */
+function winRelease(version, content = 'MZsetup') {
+  const url = (name) => `https://github.com/cjian1/ds_pet/releases/download/v${version}/${name}`;
+  const setup = (arch) => ({
+    name: `ds_pet-${version}-win-${arch}-setup.exe`,
+    size: Buffer.byteLength(content),
+    digest: 'sha256:' + crypto.createHash('sha256').update(content).digest('hex'),
+    browser_download_url: url(`ds_pet-${version}-win-${arch}-setup.exe`),
+  });
+  const zip = (arch) => ({ name: `ds_pet-${version}-win-${arch}.zip`, size: 3, browser_download_url: url(`ds_pet-${version}-win-${arch}.zip`) });
+  const rel = release(version);
+  rel.assets.push(setup('x64'), setup('arm64'), zip('x64'), zip('arm64'));
+  return rel;
+}
+
+/** 假的 child_process.spawn：记下命令和参数，下一拍报告「起来了」并正常退出（Windows 的中转就是这样）；或者起不来 */
+function fakeSpawn(spawns, fail) {
+  return (cmd, args, opts) => {
+    const child = new EventEmitter();
+    child.unref = () => (child.unrefed = true);
+    spawns.push({ cmd, args, opts, child });
+    setImmediate(() => {
+      if (fail) return child.emit('error', new Error('spawn ' + cmd + ' ENOENT'));
+      child.emit('spawn');
+      child.emit('exit', 0);
+    });
+    return child;
+  };
+}
+
+/** 临时目录里摆一个「装好的」Windows 版（installed = 旁边有卸载程序） */
+function setupWin({ replies = [], installed = true, packaged = true, spawnFail = false } = {}) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ds_pet-updater-'));
+  tmpDirs.push(tmp);
+  const installDir = path.join(tmp, 'Programs', 'ds_pet');
+  fs.mkdirSync(installDir, { recursive: true });
+  const exe = path.join(installDir, 'ds_pet.exe');
+  fs.writeFileSync(exe, '');
+  if (installed) fs.writeFileSync(path.join(installDir, U.WIN_UNINSTALLER), '');
+  const calls = [];
+  const spawns = [];
+  const quits = [];
+  const u = U.createUpdater({
+    current: '1.2.1',
+    packaged,
+    exePath: exe,
+    dataDir: path.join(tmp, 'data'),
+    t,
+    lang: () => 'zh',
+    arch: 'x64',
+    platform: 'win32',
+    spawn: fakeSpawn(spawns, spawnFail),
+    fetch: async (url, init = {}) => {
+      calls.push({ url: String(url), headers: init.headers || {} });
+      const r = replies.shift();
+      if (!r) throw new Error('没预料到的请求 ' + url);
+      return r();
+    },
+    quit: () => quits.push(1),
+  });
+  return { u, calls, spawns, quits, installDir, exe, data: path.join(tmp, 'data') };
+}
+
+test('Windows：安装包命名，按系统和芯片挑（便携版 zip 不算）', () => {
+  assert.equal(U.assetName('1.3.0', 'x64', 'win32'), 'ds_pet-1.3.0-win-x64-setup.exe');
+  assert.equal(U.assetName('1.3.0', 'arm64'), 'ds_pet-1.3.0-arm64.dmg', '不写系统 = macOS（老规矩不变）');
+  const rel = winRelease('1.3.0');
+  assert.equal(U.parseRelease(rel, 'arm64', 'win32').asset.name, 'ds_pet-1.3.0-win-arm64-setup.exe');
+  assert.equal(U.parseRelease(rel, 'x64', 'win32').asset.name, 'ds_pet-1.3.0-win-x64-setup.exe');
+  assert.equal(U.parseRelease(rel, 'x64').asset.name, 'ds_pet-1.3.0-x64.dmg', '有了 Windows 安装包，macOS 照样挑 DMG');
+  assert.equal(U.parseRelease(release('1.3.0'), 'x64', 'win32').asset, null, '只有 DMG 的旧版本：Windows 上没有能装的');
+  const renamed = release('1.3.0', { assets: [{ name: 'ds_pet-Setup-win-x64-setup.exe', size: 1, browser_download_url: 'https://github.com/x' }] });
+  assert.equal(U.parseRelease(renamed, 'x64', 'win32').asset.name, 'ds_pet-Setup-win-x64-setup.exe');
+});
+
+test('Windows：能不能就地更新（安装版可以；便携版、开发版、没权限不行）', () => {
+  assert.equal(U.installDirOf(path.join('Programs', 'ds_pet', 'ds_pet.exe'), 'win32'), path.join('Programs', 'ds_pet'));
+  const ok = { packaged: true, appPath: 'C:\\Users\\a\\AppData\\Local\\Programs\\ds_pet', writable: true, platform: 'win32', installed: true };
+  assert.equal(U.installBlocker(ok), null);
+  assert.equal(U.installBlocker({ ...ok, packaged: false }), 'dev');
+  assert.equal(U.installBlocker({ ...ok, installed: false }), 'portable');
+  assert.equal(U.installBlocker({ ...ok, appPath: null }), 'portable');
+  assert.equal(U.installBlocker({ ...ok, writable: false }), 'permission');
+  assert.equal(U.installBlocker({ ...ok, appPath: '/Volumes/ds_pet' }), null, 'macOS 的规则不套到 Windows 上');
+});
+
+test('Windows 更新脚本：只有 ASCII，步骤齐全（等旧进程 → /S /D= 静默装回原文件夹 → 删安装程序 → 重新打开）', () => {
+  const s = U.UPDATE_SCRIPT_WIN;
+  assert.ok(!/[^\x00-\x7f]/.test(s), 'Windows PowerShell 5.1 按系统代码页读脚本，别放非 ASCII');
+  assert.ok(!s.includes('${'), '模板字符串里不能有 ${');
+  for (const step of [
+    "Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList $relay",
+    "' -Detached'",
+    'Get-Process -Id $OldPid',
+    "@('/S', ('/D=' + $InstallDir))",
+    '$p.WaitForExit()',
+    'Remove-Item -LiteralPath $Installer',
+    'Start-Process -FilePath $Exe',
+  ]) {
+    assert.ok(s.includes(step), step);
+  }
+  assert.ok(s.indexOf('/D=') < s.indexOf('Start-Process -FilePath $Exe'), '先装再打开');
+  assert.ok(s.indexOf('exit 0') < s.indexOf('Get-Process -Id $OldPid'), '中转那份起好干活的那份就退出，不等旧进程');
+});
+
+test('Windows：检查更新 → 挑本机芯片的安装程序；装好的版本可以一键更新', async () => {
+  const { u, calls } = setupWin({ replies: [json(winRelease('1.3.0'))] });
+  const st = await u.check({ manual: true });
+  assert.equal(st.phase, 'available');
+  assert.equal(st.latest.asset.name, 'ds_pet-1.3.0-win-x64-setup.exe');
+  assert.equal(st.blocker, null);
+  assert.match(calls[0].headers['User-Agent'], /Windows/);
+});
+
+test('Windows：便携版（旁边没有卸载程序）→ 不去下载，提示去 GitHub', async () => {
+  const { u, calls } = setupWin({ installed: false, replies: [json(winRelease('1.3.0'))] });
+  const st0 = await u.check({ manual: true });
+  assert.equal(st0.blocker, 'portable');
+  const st = await u.install();
+  assert.equal(st.phase, 'error');
+  assert.equal(st.error, t('update.block.portable'));
+  assert.equal(calls.length, 1, '没有去下载');
+});
+
+test('Windows：下载校验通过 → 起 PowerShell 脚本（装回原文件夹、再打开原来的 exe）→ 退出', async () => {
+  const { u, spawns, quits, installDir, exe, data } = setupWin({ replies: [json(winRelease('1.3.0')), () => new Response('MZsetup')] });
+  await u.check({ manual: true });
+  const st = await u.install();
+  assert.equal(st.phase, 'restarting', st.error);
+  assert.equal(spawns.length, 1);
+  const { cmd, args, opts, child } = spawns[0];
+  assert.match(cmd, /WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/);
+  const arg = (name) => args[args.indexOf(name) + 1];
+  assert.equal(arg('-ExecutionPolicy'), 'Bypass');
+  assert.equal(arg('-OldPid'), String(process.pid));
+  assert.equal(arg('-InstallDir'), installDir);
+  assert.equal(arg('-Exe'), exe);
+  assert.equal(path.basename(arg('-Installer')), 'ds_pet-1.3.0-win-x64-setup.exe');
+  assert.equal(fs.readFileSync(arg('-Installer'), 'utf8'), 'MZsetup');
+  const script = fs.readFileSync(arg('-File'), 'utf8');
+  assert.equal(script, '\ufeff' + U.UPDATE_SCRIPT_WIN, '脚本带 BOM 写出去');
+  assert.equal(opts.detached, false, 'Windows 上 detached 的 PowerShell 没有控制台，会直接退出（见 launch()）');
+  assert.equal(opts.windowsHide, true);
+  assert.equal(child.unrefed, true);
+  assert.ok(fs.existsSync(path.join(data, 'updates', 'just-updated.json')));
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(quits.length, 1);
+});
+
+test('Windows：下载的不是 Windows 程序 → 报错、不退出', async () => {
+  const { u, spawns, quits } = setupWin({ replies: [json(winRelease('1.3.0', 'evil!!')), () => new Response('evil!!')] });
+  await u.check({ manual: true });
+  const st = await u.install();
+  assert.equal(st.phase, 'error');
+  assert.equal(st.error, t('update.err.bundle', { why: 'not a Windows program' }));
+  assert.equal(spawns.length, 0);
+  assert.equal(quits.length, 0);
+});
+
+test('Windows：PowerShell 起不来 → 报「没能开始安装」，不退出、不留更新标记', async () => {
+  const { u, quits, data } = setupWin({ spawnFail: true, replies: [json(winRelease('1.3.0')), () => new Response('MZsetup')] });
+  await u.check({ manual: true });
+  const st = await u.install();
+  assert.equal(st.phase, 'error');
+  assert.ok(st.error.startsWith(t('update.err.launch', { msg: '' })), st.error);
+  assert.equal(fs.existsSync(path.join(data, 'updates', 'just-updated.json')), false);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(quits.length, 0);
+});
+
+test('Windows 更新脚本：真跑一遍 PowerShell（安装程序收到 /S /D=<带空格的原文件夹>，装完删掉、再打开）', { skip: process.platform !== 'win32' && '只在 Windows 上跑' }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ds_pet-updater-'));
+  tmpDirs.push(tmp);
+  const installDir = path.join(tmp, 'Program Files X', 'ds_pet');
+  fs.mkdirSync(installDir, { recursive: true });
+  const relaunched = path.join(tmp, 'relaunched.txt');
+  const exe = path.join(installDir, 'relaunch.cmd');
+  fs.writeFileSync(exe, `@echo relaunched> "${relaunched}"\r\n`);
+  const argsLog = path.join(tmp, 'installer-args.txt');
+  const installer = path.join(tmp, 'setup.cmd');
+  fs.writeFileSync(installer, `@echo %*> "${argsLog}"\r\n@exit /b 0\r\n`);
+  const script = path.join(tmp, 'update.ps1');
+  fs.writeFileSync(script, '\ufeff' + U.UPDATE_SCRIPT_WIN);
+  const dead = spawnSync(process.execPath, ['-e', '0']).pid; // 一个已经退出的进程
+  const log = path.join(tmp, 'update.log');
+  // 和应用里一样不带 -Detached 起：中转那份马上退出，真正干活的那份在后台接着跑
+  const r = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-OldPid', String(dead), '-Installer', installer, '-InstallDir', installDir, '-Exe', exe, '-Log', log],
+    { encoding: 'utf8', timeout: 60000 },
+  );
+  const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '');
+  assert.equal(r.status, 0, r.stderr);
+  for (let i = 0; i < 300 && !(fs.existsSync(relaunched) && /update done/.test(read(log))); i++) await new Promise((res) => setTimeout(res, 100));
+  assert.ok(fs.existsSync(relaunched), '重新打开了；日志：' + read(log));
+  assert.equal(read(argsLog).trim(), '/S /D=' + installDir);
+  assert.equal(fs.existsSync(installer), false, '装完删掉安装程序');
+  assert.match(read(log), /update done/);
 });

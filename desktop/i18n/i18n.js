@@ -353,7 +353,7 @@
     'set.about.upstream': ['原项目 dsh-pet', 'Original project: dsh-pet'],
     'set.about.repo': ['ds_pet 主页', 'ds_pet on GitHub'],
     'set.about.creditTitle': ['出处', 'Credits'],
-    'set.about.credit': ['本应用基于 PC2005-cloud 的开源项目 dsh-pet（MIT 协议）二次创作。桌宠的动画、美术、物理与玩法均来自原项目；ds_pet 在此基础上做成了独立的 macOS 应用，并加入了聊天面板、设置界面、多家 AI 服务与双语支持。', 'ds_pet is a remix of dsh-pet, an open-source project by PC2005-cloud (MIT license). The pet animations, artwork, physics and gameplay all come from the original project; ds_pet turns it into a standalone macOS app with a chat panel, a settings window, multiple AI providers and bilingual support.'],
+    'set.about.credit': ['本应用基于 PC2005-cloud 的开源项目 dsh-pet（MIT 协议）二次创作。桌宠的动画、美术、物理与玩法均来自原项目；ds_pet 在此基础上做成了独立的桌面应用（macOS 与 Windows），并加入了聊天面板、设置界面、多家 AI 服务与双语支持。', 'ds_pet is a remix of dsh-pet, an open-source project by PC2005-cloud (MIT license). The pet animations, artwork, physics and gameplay all come from the original project; ds_pet turns it into a standalone desktop app for macOS and Windows with a chat panel, a settings window, multiple AI providers and bilingual support.'],
     'set.about.disclaimer': ['对话由你选择的 AI 服务商提供（默认 DeepSeek）。本项目为个人作品，与各服务商官方无关。', 'Chat is powered by the AI provider you choose (DeepSeek by default). This is a personal project and is not affiliated with any provider.'],
     'set.tips': ['小贴士', 'Tips'],
 
@@ -381,6 +381,7 @@
     'update.block.dev': ['开发版不能一键更新，请用 git pull', "The dev build can't update itself; use git pull"],
     'update.block.translocated': ['请先把 ds_pet 拖进「应用程序」文件夹，从那里打开后再更新', 'Move ds_pet into Applications, open it from there, then update'],
     'update.block.permission': ['没有权限替换 {path}，请到 GitHub 下载新版本手动安装', 'No permission to replace {path}. Download the new version from GitHub and install it manually'],
+    'update.block.portable': ['便携版不能一键更新，请到 GitHub 下载新版本（用安装版就能一键更新）', "The portable version can't update itself. Download the new version from GitHub (the installer version updates in one click)"],
     'update.err.network': ['连不上 GitHub：{msg}', "Can't reach GitHub: {msg}"],
     'update.err.http': ['GitHub 返回了错误（{code}），过一会儿再试', 'GitHub returned an error ({code}); try again later'],
     'update.err.rate': ['访问 GitHub 太频繁了，过一会儿再试', 'Too many requests to GitHub; try again later'],
@@ -390,6 +391,7 @@
     'update.err.checksum': ['下载的文件校验不通过，已删除，请重试', 'The download failed verification and was deleted; please try again'],
     'update.err.mount': ['打不开安装包：{msg}', "Couldn't open the installer: {msg}"],
     'update.err.bundle': ['安装包里的应用不对（{why}），已停止', 'The app inside the installer looks wrong ({why}); stopped'],
+    'update.err.launch': ['没能开始安装：{msg}', "Couldn't start installing: {msg}"],
     'update.petFound': ['有新版本 {v} 啦～右键我或点菜单栏图标就能一键更新', 'Version {v} is out! Right-click me or use the menu bar icon to update'],
     'update.petDownloading': ['正在下载新版本，装好了我会自己重启～', "Downloading the update, I'll restart myself when it's ready~"],
     'update.petFailed': ['更新没成功…{msg}', "The update didn't work… {msg}"],
@@ -409,6 +411,18 @@
     'set.tip.trayText': ['右上角的小鲸鱼图标随时能把她叫出来', 'The little whale icon in the menu bar can bring her back anytime'],
     'set.toast.name': ['她现在叫「{name}」啦', 'Her name is now “{name}”'],
     'set.toast.home': ['她回到初始位置啦', "She's back at her start position"],
+  };
+
+  // Windows 上换个说法的文案（键必须也在上面；没列出来的两边通用）
+  const WIN = {
+    'set.keyNone': ['{name} 的 API Key；只保存在这台电脑上', 'Your {name} API key — stored only on this PC'],
+    'set.loginApprove': ['在「任务管理器 › 启动应用」里被禁用了，去那里重新启用一下', 'It is turned off in Task Manager › Startup apps — turn it back on there'],
+    'set.shortcutNeedMod': ['要带 Ctrl / Alt / Win 其中之一', 'Include Ctrl, Alt or Win'],
+    'update.err.noAsset': ['这个版本没有适合你电脑（{arch}）的安装包，请到 GitHub 下载', 'This release has no installer for your PC ({arch}); download it from GitHub'],
+    'update.err.bundle': ['下载的安装程序不对（{why}），已停止', 'The downloaded installer looks wrong ({why}); stopped'],
+    'update.petFound': ['有新版本 {v} 啦～右键我或点任务栏右下角的小鲸鱼就能一键更新', 'Version {v} is out! Right-click me or use the whale icon in the taskbar to update'],
+    'set.tip.tray': ['任务栏图标', 'Taskbar icon'],
+    'set.tip.trayText': ['任务栏右下角的小鲸鱼图标随时能把她叫出来（找不到的话点「^」展开看看）', 'The little whale in the corner of the taskbar can bring her back anytime (click “^” if it’s tucked away)'],
   };
 
   // 动画名（文件名是中文；英文界面显示这里的翻译）
@@ -521,12 +535,20 @@
     '工作状态-垂头叹气冒汗': 'Sighing',
   };
 
+  /** 跑在哪个系统上：主进程看 process.platform；页面里没有 process，看 navigator（Windows 是 "Win32"） */
+  let platform =
+    typeof process !== 'undefined' && process && process.platform
+      ? process.platform
+      : typeof navigator !== 'undefined' && /^Win/i.test(navigator.platform || '')
+        ? 'win32'
+        : 'darwin';
+
   function normalize(lang) {
     return String(lang || '').toLowerCase().startsWith('en') ? 'en' : 'zh';
   }
 
   function t(lang, key, vars) {
-    const row = S[key];
+    const row = (platform === 'win32' && WIN[key]) || S[key];
     let s = row ? row[normalize(lang) === 'en' ? 1 : 0] : key;
     if (vars) for (const k of Object.keys(vars)) s = s.split('{' + k + '}').join(String(vars[k]));
     return s;
@@ -546,7 +568,11 @@
     for (const el of doc.querySelectorAll('[data-i18n]')) el.textContent = t(lang, el.dataset.i18n);
     for (const el of doc.querySelectorAll('[data-i18n-title]')) el.title = t(lang, el.dataset.i18nTitle);
     for (const el of doc.querySelectorAll('[data-i18n-placeholder]')) el.placeholder = t(lang, el.dataset.i18nPlaceholder);
-    if (doc.documentElement) doc.documentElement.lang = normalize(lang) === 'en' ? 'en' : 'zh-CN';
+    if (doc.documentElement) {
+      doc.documentElement.lang = normalize(lang) === 'en' ? 'en' : 'zh-CN';
+      // 样式表按系统微调（Windows 没有毛玻璃和红绿灯按钮，见各页 CSS 的 .platform-win）
+      doc.documentElement.classList.toggle('platform-win', platform === 'win32');
+    }
   }
 
   /** 全部文案键（单测用来检查每条都有中英两份） */
@@ -554,5 +580,19 @@
     return Object.keys(S);
   }
 
-  return { t, has, anim, apply, normalize, keys, LANGS: ['zh', 'en'] };
+  /** Windows 专用说法的键（单测用） */
+  function winKeys() {
+    return Object.keys(WIN);
+  }
+
+  /** 当前按哪个系统挑文案；单测可以切过去看另一边 */
+  function setPlatform(p) {
+    platform = String(p || '');
+  }
+
+  function getPlatform() {
+    return platform;
+  }
+
+  return { t, has, anim, apply, normalize, keys, winKeys, setPlatform, getPlatform, LANGS: ['zh', 'en'] };
 });

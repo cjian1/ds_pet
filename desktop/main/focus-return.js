@@ -14,6 +14,7 @@
  *  3. 本来就要本应用在前台的操作（打开聊天 / 设置 / 选图 / 关于）调用 cancel()，这次就不还了。
  *
  * 状态机是纯逻辑（createFocusReturn），系统调用由 macSystem() 提供，单测见 test/focus-return.test.js。
+ * Windows 上用不着这一套（见 inertSystem）。
  */
 const { execFile } = require('node:child_process');
 
@@ -124,4 +125,16 @@ function macSystem() {
   };
 }
 
-module.exports = { createFocusReturn, macSystem, LINK_MS, CAPTURE_EVERY_MS };
+/**
+ * Windows：什么都不用做。桌宠窗口是 focusable:false（WS_EX_NOACTIVATE，见 pet-window.js），
+ * 点她根本不会激活本应用，也就没有焦点要还；这里不起任何子进程。
+ */
+function inertSystem() {
+  return {
+    ownPid: process.pid,
+    frontPid: async () => null,
+    activate() {},
+  };
+}
+
+module.exports = { createFocusReturn, macSystem, inertSystem, LINK_MS, CAPTURE_EVERY_MS };

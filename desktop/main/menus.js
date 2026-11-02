@@ -1,7 +1,8 @@
 'use strict';
 /**
- * 三个菜单：她身上的右键菜单、菜单栏图标菜单、应用菜单（设置/聊天窗口在前台时的 ⌘C ⌘V ⌘W ⌘Q）。
- * 全部用系统原生菜单：跟 macOS 其它软件一个手感（键盘可选、深色模式自动适配、不会被窗口边缘裁掉）。
+ * 三个菜单：她身上的右键菜单、菜单栏图标菜单（Windows 上是任务栏通知区域的图标）、
+ * 应用菜单（只有 macOS：设置/聊天窗口在前台时的 ⌘C ⌘V ⌘W ⌘Q）。
+ * 全部用系统原生菜单：跟系统里其它软件一个手感（键盘可选、深色模式自动适配、不会被窗口边缘裁掉）。
  * 文案走 i18n（ctx.t），动画名在英文界面下显示翻译。
  */
 const { Menu, app } = require('electron');
@@ -61,6 +62,11 @@ function shortcutLabel(settings) {
   return settings.app.shortcutEnabled ? settings.app.shortcut : undefined;
 }
 
+/** 「设置… ⌘,」「退出 ⌘Q」这类标注只在 macOS 上有：Windows 的托盘 / 右键菜单习惯不标，也没有对应的快捷键 */
+function macAccel(ctx, accelerator) {
+  return (ctx.platform || process.platform) === 'darwin' ? accelerator : undefined;
+}
+
 /** 她身上的右键菜单 */
 function petMenu(ctx) {
   const { t, settings: s, name, hasKey } = ctx;
@@ -93,8 +99,8 @@ function petMenu(ctx) {
   const upd = updateItem(ctx);
   if (upd) template.push(upd);
   template.push(
-    { label: t('menu.settings'), accelerator: 'Command+,', registerAccelerator: false, click: () => ctx.openSettings() },
-    { label: t('menu.quitApp'), accelerator: 'Command+Q', registerAccelerator: false, click: () => ctx.quit() },
+    { label: t('menu.settings'), accelerator: macAccel(ctx, 'Command+,'), registerAccelerator: false, click: () => ctx.openSettings() },
+    { label: t('menu.quitApp'), accelerator: macAccel(ctx, 'Command+Q'), registerAccelerator: false, click: () => ctx.quit() },
   );
   return Menu.buildFromTemplate(template);
 }
@@ -130,7 +136,7 @@ function trayMenu(ctx) {
   ];
   if (!ctx.hasKey) template.push({ label: t('tray.noKey'), click: () => ctx.openSettings('ai') });
   template.push(
-    { label: t('menu.settings'), accelerator: 'Command+,', registerAccelerator: false, click: () => ctx.openSettings() },
+    { label: t('menu.settings'), accelerator: macAccel(ctx, 'Command+,'), registerAccelerator: false, click: () => ctx.openSettings() },
     {
       label: t('tray.login'),
       type: 'checkbox',
@@ -141,12 +147,15 @@ function trayMenu(ctx) {
     { type: 'separator' },
     { label: t('tray.checkUpdate'), click: () => ctx.checkUpdate() },
     { label: t('menu.about'), click: () => ctx.about() },
-    { label: t('menu.quit'), accelerator: 'Command+Q', registerAccelerator: false, click: () => ctx.quit() },
+    { label: t('menu.quit'), accelerator: macAccel(ctx, 'Command+Q'), registerAccelerator: false, click: () => ctx.quit() },
   );
   return Menu.buildFromTemplate(template);
 }
 
-/** 应用菜单：设置/聊天窗口在前台时生效（输入框里的复制粘贴、⌘W 关窗口、⌘Q 退出都靠它） */
+/**
+ * 应用菜单：设置/聊天窗口在前台时生效（输入框里的复制粘贴、⌘W 关窗口、⌘Q 退出都靠它）。
+ * 只有 macOS 用：Windows 上它会变成每个窗口顶上的菜单栏，而输入框的 Ctrl+C / Ctrl+V 不靠菜单也能用。
+ */
 function appMenu(ctx) {
   const { t } = ctx;
   return Menu.buildFromTemplate([

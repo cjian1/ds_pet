@@ -49,8 +49,10 @@ body {
   display: flex;
   background: transparent;
   color: var(--text);
-  font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* 折行时别把最后一个字单独甩到下一行 */
+  text-wrap: pretty;
   user-select: none;
   -webkit-user-select: none;
   overflow: hidden;
@@ -79,6 +81,12 @@ svg {
   flex: none;
   padding: 52px 10px 14px;
   -webkit-app-region: drag;
+}
+/* Windows：没有红绿灯，侧栏顶上不用留空；最小化 / 关闭按钮浮在内容区右上角（标题 h1 那一条照样能拖动窗口）。
+   雅黑比苹方宽一点，侧栏放宽些，副标题才不会折成两行 */
+.platform-win .sidebar {
+  width: 222px;
+  padding-top: 18px;
 }
 .brand {
   display: flex;
@@ -295,7 +303,7 @@ h2 {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .text.mono {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
 }
 .text.area {
@@ -607,7 +615,7 @@ select.wide {
 .model .m-id {
   color: var(--dim);
   font-size: 11.5px;
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 .badges {
   display: flex;
@@ -642,7 +650,7 @@ select.wide {
   border-radius: 7px;
   background: var(--field);
   padding: 3px 10px;
-  font-family: -apple-system, 'SF Pro Text', sans-serif;
+  font-family: -apple-system, 'SF Pro Text', 'Segoe UI', sans-serif;
   letter-spacing: 1px;
 }
 .keycap.recording {
@@ -755,7 +763,7 @@ select.wide {
 .credit-head a {
   color: var(--accent);
   text-decoration: none;
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
 }
 .credit-head a:hover {

@@ -2,8 +2,9 @@
 /**
  * ds_pet —— 应用入口（基于 PC2005-cloud/dsh-pet 二次创作）。
  *
- * 一个进程管全部：桌宠窗口、菜单栏图标、聊天面板、设置窗口、AI 服务调用（多家服务商，见 providers.js）、数据存储。
- * 关掉所有窗口不会退出（她还在桌面上）；退出只有 ⌘Q / 菜单「退出」。
+ * 一个进程管全部：桌宠窗口、菜单栏图标（Windows：任务栏通知区域图标）、聊天面板、设置窗口、
+ * AI 服务调用（多家服务商，见 providers.js）、数据存储。
+ * 关掉所有窗口不会退出（她还在桌面上）；退出只有 ⌘Q / 菜单「退出」（安装程序用 `ds_pet.exe --quit` 叫她退出）。
  */
 const {
   app,
@@ -19,8 +20,12 @@ const {
 const path = require('node:path');
 
 const APP_NAME = 'ds_pet';
+const IS_MAC = process.platform === 'darwin';
+const IS_WIN = process.platform === 'win32';
+/** 命令行带上它：叫正在运行的她退出（Windows 安装 / 卸载程序在替换文件前用，见 scripts/win-installer.nsi） */
+const QUIT_ARG = '--quit';
 app.setName(APP_NAME);
-// 数据目录：~/Library/Application Support/ds_pet（DS_PET_DATA_DIR 可指定别处，开发/演示用）
+// 数据目录：~/Library/Application Support/ds_pet、%APPDATA%\ds_pet（DS_PET_DATA_DIR 可指定别处，开发/演示用）
 app.setPath('userData', process.env.DS_PET_DATA_DIR || path.join(app.getPath('appData'), APP_NAME));
 // 动画需要无手势自动播放
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -46,15 +51,17 @@ const chatWindow = require('./chat-window');
 const settingsWindow = require('./settings-window');
 const { migrate } = require('./migrate');
 const Providers = require('./providers');
-const { createFocusReturn, macSystem } = require('./focus-return');
+const { createFocusReturn, macSystem, inertSystem } = require('./focus-return');
 const { createStreamBuffer } = require('./stream-buffer');
 const { needsPetWindowReload } = require('./pet-reload');
 const Updater = require('./updater');
 
 const RES = path.join(__dirname, '..', 'resources');
+// Windows：任务栏分组、登录项（注册表 Run 里的值名）都按这个 ID 来，和安装程序里的一致
+if (IS_WIN) app.setAppUserModelId(Updater.BUNDLE_ID);
 
-/** 点她 / 拖她之后把焦点还给你原来在用的应用（见 focus-return.js） */
-const focusReturn = createFocusReturn(macSystem());
+/** 点她 / 拖她之后把焦点还给你原来在用的应用（见 focus-return.js；Windows 上点她本来就不抢焦点） */
+const focusReturn = createFocusReturn(IS_MAC ? macSystem() : inertSystem());
 let tray = null;
 let greeted = false;
 const LINKS = {
@@ -79,6 +86,7 @@ function ctx() {
   return {
     settings: s,
     lang: store.lang(),
+    platform: process.platform,
     t,
     name: store.petName(),
     hasKey: store.hasApiKey(),
@@ -153,7 +161,7 @@ function openChat(opts = {}) {
 
 async function pickImage() {
   focusReturn.cancel();
-  app.focus({ steal: true });
+  if (IS_MAC) app.focus({ steal: true });
   const res = await dialog.showOpenDialog({
     title: t('pick.title'),
     buttonLabel: t('pick.button'),
@@ -169,13 +177,19 @@ async function pickImage() {
   openChat({ image: img.toDataURL() });
 }
 
+/** 关于：macOS 用系统的关于面板；Windows 的那个只是个简陋的对话框，直接打开设置 › 关于（出处、更新都在那儿） */
 function about() {
   focusReturn.cancel();
+  if (!IS_MAC) {
+    settingsWindow.open('about');
+    return;
+  }
   app.focus({ steal: true });
   app.showAboutPanel();
 }
 
 function applyAboutPanel() {
+  if (!IS_MAC) return;
   app.setAboutPanelOptions({
     applicationName: APP_NAME,
     applicationVersion: app.getVersion(),
@@ -187,6 +201,11 @@ function applyAboutPanel() {
 }
 
 // ---------------------------------------------------------------- 系统集成
+/** 应用菜单只有 macOS 要（见 menus.appMenu）；Windows 上设成 null，窗口顶上就不会多出一条菜单栏 */
+function applyAppMenu() {
+  Menu.setApplicationMenu(IS_MAC ? menus.appMenu(ctx()) : null);
+}
+
 function applyDock() {
   if (!app.dock) return;
   if (store.get().app.showInDock || settingsWindow.isOpen()) app.dock.show();
@@ -208,6 +227,8 @@ function loginStatus() {
   if (!app.isPackaged) return 'dev';
   try {
     const st = app.getLoginItemSettings();
+    // Windows：注册表里登记了，但在任务管理器 › 启动应用里被关掉了（开机不会启动）
+    if (IS_WIN && st.openAtLogin && st.executableWillLaunchAtLogin === false) return 'requires-approval';
     return st.status || (st.openAtLogin ? 'enabled' : 'not-registered');
   } catch {
     return 'unknown';
@@ -277,10 +298,19 @@ function scheduleUpdateChecks() {
   updateTimers.push(setInterval(() => void updater.check(), 6 * 3600 * 1000));
 }
 
-function createTray() {
+/**
+ * 菜单栏 / 通知区域图标：macOS 是单色模板图（系统按明暗自动反色）；
+ * Windows 是彩色小鲸鱼 .ico（内含 16–64px 各档，系统按缩放比例挑，深浅色任务栏上都看得清）。
+ */
+function trayImage() {
+  if (!IS_MAC) return path.join(RES, 'tray.ico');
   const icon = nativeImage.createFromPath(path.join(RES, 'trayTemplate.png'));
   icon.setTemplateImage(true);
-  tray = new Tray(icon);
+  return icon;
+}
+
+function createTray() {
+  tray = new Tray(trayImage());
   const pop = () => tray.popUpContextMenu(menus.trayMenu(ctx()));
   tray.on('click', pop);
   tray.on('right-click', pop);
@@ -563,7 +593,7 @@ function onSettingsChange(next, prev) {
   }
   // 换语言：菜单、关于面板、聊天和设置窗口都换成新语言
   if (langChanged) {
-    Menu.setApplicationMenu(menus.appMenu(ctx()));
+    applyAppMenu();
     applyAboutPanel();
     chatWindow.reload();
     settingsWindow.reload('general');
@@ -585,10 +615,16 @@ function onSettingsChange(next, prev) {
 }
 
 // ---------------------------------------------------------------- 启动
-if (!app.requestSingleInstanceLock()) {
+// 已经有一个在运行：把命令行交给它（second-instance）自己退出。带 --quit 启动的这一份也是直接退出。
+if (!app.requestSingleInstanceLock() || process.argv.includes(QUIT_ARG)) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  // 再打开一次应用（双击图标 / 开始菜单）：她藏起来了就叫出来，并打开设置；安装程序发来 --quit 就正常退出
+  app.on('second-instance', (_e, argv) => {
+    if (Array.isArray(argv) && argv.includes(QUIT_ARG)) {
+      app.quit();
+      return;
+    }
     setVisible(true);
     settingsWindow.open();
   });
@@ -643,7 +679,7 @@ if (!app.requestSingleInstanceLock()) {
     applyAboutPanel();
     if (!app.isPackaged && app.dock) app.dock.setIcon(path.join(RES, 'icon.png'));
 
-    Menu.setApplicationMenu(menus.appMenu(ctx()));
+    applyAppMenu();
     applyDock();
     createTray();
     setupChatIpc();
@@ -656,7 +692,8 @@ if (!app.requestSingleInstanceLock()) {
       onOpenChat: (payload) => openChat(payload),
       onMoved: () => chatWindow.follow(),
       onReady: onPetReady,
-      onPointerNear: () => focusReturn.pointerNear(),
+      // 记「原来最前面的应用」要起子进程：只有 macOS 需要（Windows 上点她不抢焦点）
+      onPointerNear: IS_MAC ? () => focusReturn.pointerNear() : undefined,
       onInputBusy: (busy) => focusReturn.interaction(busy),
     });
     chatWindow.setBodyRectProvider(petWindow.bodyRect);
@@ -664,7 +701,7 @@ if (!app.requestSingleInstanceLock()) {
       onShow: () => {
         focusReturn.cancel();
         if (app.dock) app.dock.show();
-        app.focus({ steal: true });
+        if (IS_MAC) app.focus({ steal: true });
       },
       onClose: applyDock,
     });

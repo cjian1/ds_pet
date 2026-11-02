@@ -1,12 +1,13 @@
 'use strict';
 /**
- * 聊天面板：贴在她身边的小浮窗（macOS 原生 popover 毛玻璃），跟着她走。
+ * 聊天面板：贴在她身边的小浮窗（macOS 原生 popover 毛玻璃；Windows 是跟着深浅色的不透明底色），跟着她走。
  * 关掉只是隐藏，聊天记录在 memory.json 里，下次打开接着聊。
  */
 const { BrowserWindow, screen } = require('electron');
 const path = require('node:path');
 const { ORIGIN } = require('./service');
 const { store } = require('./store');
+const chrome = require('./window-chrome');
 
 function pageUrl() {
   return ORIGIN + '/chat/index.html?lang=' + store.lang();
@@ -29,9 +30,9 @@ function setBodyRectProvider(fn) {
   getBodyRect = fn;
 }
 
-function create() {
-  ready = false;
-  win = new BrowserWindow({
+/** 窗口选项：macOS 用 popover 毛玻璃，Windows 用不透明底色（见 window-chrome.js） */
+function windowOptions(platform = process.platform) {
+  const opts = {
     width: W,
     height: H,
     minWidth: 300,
@@ -45,9 +46,6 @@ function create() {
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    vibrancy: 'popover',
-    visualEffectState: 'active',
-    backgroundColor: '#00000000',
     roundedCorners: true,
     hasShadow: true,
     title: store.t('chat.window'),
@@ -58,9 +56,22 @@ function create() {
       sandbox: true,
       spellcheck: false,
     },
-  });
+  };
+  if (platform === 'win32') opts.backgroundColor = chrome.color('chat');
+  else Object.assign(opts, { vibrancy: 'popover', visualEffectState: 'active', backgroundColor: '#00000000' });
+  return opts;
+}
+
+function create() {
+  ready = false;
+  const w = new BrowserWindow(windowOptions());
+  win = w;
   win.setAlwaysOnTop(true, 'status');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  if (process.platform === 'darwin') {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  } else {
+    chrome.followTheme(w, (dark) => w.setBackgroundColor(chrome.color('chat', dark)));
+  }
   win.loadURL(pageUrl());
   win.webContents.on('did-finish-load', () => {
     ready = true;
@@ -173,4 +184,4 @@ function window() {
   return win && !win.isDestroyed() ? win : null;
 }
 
-module.exports = { show, hide, isVisible, send, follow, setQuitting, setBodyRectProvider, window, reload };
+module.exports = { show, hide, isVisible, send, follow, setQuitting, setBodyRectProvider, window, reload, windowOptions };

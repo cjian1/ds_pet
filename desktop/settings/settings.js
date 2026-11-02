@@ -71,15 +71,29 @@ function setValue(el, v) {
   if (document.activeElement !== el) el.value = v;
 }
 
-const KEY_SYMBOLS = { Command: '⌘', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', CommandOrControl: '⌘' };
+const IS_WIN = window.I18n.getPlatform() === 'win32';
+/** 快捷键怎么显示：macOS 用 ⌃⌥⇧⌘ 符号连写；Windows 写成 Ctrl+Alt+P（Win 键在 Electron 里叫 Super / Command） */
+const KEY_SYMBOLS = IS_WIN
+  ? { Super: 'Win', Command: 'Win', Meta: 'Win', Control: 'Ctrl', CommandOrControl: 'Ctrl', Alt: 'Alt', Option: 'Alt', Shift: 'Shift' }
+  : { Command: '⌘', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', CommandOrControl: '⌘', Super: '⌘' };
 function prettyAccel(acc) {
-  const order = ['Control', 'Alt', 'Option', 'Shift', 'Command', 'CommandOrControl'];
+  const order = IS_WIN
+    ? ['Super', 'Command', 'Meta', 'Control', 'CommandOrControl', 'Alt', 'Option', 'Shift']
+    : ['Control', 'Alt', 'Option', 'Shift', 'Command', 'CommandOrControl', 'Super'];
   const parts = String(acc || '').split('+');
   const key = parts.pop() || '';
   parts.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  const named = { Space: LANG === 'en' ? 'Space' : '空格', Up: '↑', Down: '↓', Left: '←', Right: '→', Return: '↩', Backspace: '⌫' };
-  return parts.map((p) => KEY_SYMBOLS[p] || p).join('') + (named[key] || key.toUpperCase());
+  const space = LANG === 'en' ? 'Space' : '空格';
+  const named = IS_WIN
+    ? { Space: space, Up: '↑', Down: '↓', Left: '←', Right: '→', Return: 'Enter', Backspace: 'Backspace' }
+    : { Space: space, Up: '↑', Down: '↓', Left: '←', Right: '→', Return: '↩', Backspace: '⌫' };
+  const mods = parts.map((p) => KEY_SYMBOLS[p] || p);
+  const label = named[key] || key.toUpperCase();
+  return IS_WIN ? mods.concat(label).join('+') : mods.join('') + label;
 }
+
+// 只有 macOS 才有的设置：程序坞图标、全屏应用上方是否显示（Windows 上她一直在最上层，用快捷键随时藏起来）
+for (const id of ['dock', 'fullscreen']) $(id).closest('.row').hidden = IS_WIN;
 
 // ---------------------------------------------------------------- 标签页
 function showTab(tab) {
@@ -583,7 +597,7 @@ $('visible').addEventListener('change', (e) => void set({ app: { visible: e.targ
 $('fullscreen').addEventListener('change', (e) => void set({ app: { overFullscreen: e.target.checked } }));
 $('shortcut-on').addEventListener('change', (e) => void set({ app: { shortcutEnabled: e.target.checked } }));
 
-// 快捷键录制：点一下 → 按下新组合键（至少一个 ⌘/⌃/⌥）→ 生效；Esc 取消
+// 快捷键录制：点一下 → 按下新组合键（至少一个 ⌘/⌃/⌥，Windows 上是 Ctrl / Alt / Win）→ 生效；Esc 取消
 const sc = $('shortcut');
 sc.addEventListener('click', () => {
   sc.classList.add('recording');
@@ -608,7 +622,7 @@ sc.addEventListener('keydown', (e) => {
   if (e.ctrlKey) mods.push('Control');
   if (e.altKey) mods.push('Alt');
   if (e.shiftKey) mods.push('Shift');
-  if (e.metaKey) mods.push('Command');
+  if (e.metaKey) mods.push(IS_WIN ? 'Super' : 'Command');
   if (!e.ctrlKey && !e.altKey && !e.metaKey) {
     sc.textContent = tr('set.shortcutNeedMod');
     return;

@@ -129,7 +129,8 @@ test('update：合并、落盘（权限 600），值没变不发 change', () => 
   const saved = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
   assert.equal(saved.pet.size, 333);
   assert.equal(saved.talk.whisperEnabled, false);
-  assert.equal(fs.statSync(settingsFile()).mode & 0o777, 0o600);
+  // Windows 没有 POSIX 权限位（只读 / 可写两种），只在别的系统上查 600
+  if (process.platform !== 'win32') assert.equal(fs.statSync(settingsFile()).mode & 0o777, 0o600);
   assert.equal(path.dirname(settingsFile()), userData);
 });
 

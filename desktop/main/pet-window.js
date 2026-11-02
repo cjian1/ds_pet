@@ -5,7 +5,7 @@
  * 几何模型沿用 dsh-pet 上游：窗口 = 宠物包围盒 + 四周各半只宠物的余量（给气泡用）；
  * 渲染端逐帧上报目标位置（pet:set-bounds），这里 setContentBounds 让窗口跟随。
  * macOS 不让无边框窗口越过菜单栏，窗口被顶住时把「实际落位」回传，渲染端把精灵在窗口内挪过去，
- * 宠物因此仍能贴到屏幕最上沿。
+ * 宠物因此仍能贴到屏幕最上沿（Windows 不限制窗口位置，回传的就是请求的位置）。
  *
  * 输入：窗口默认整窗点击穿透（透明处不挡下面的应用），光标压到她身体（HIT_BOX）上才变成可交互；
  * 渲染端（转发的 mousemove）和这里的光标轮询用同一块区域判定（见 pointer-target.js）。
@@ -220,11 +220,17 @@ function pointerTick() {
   pointerTimer = setTimeout(pointerTick, delay);
 }
 
-function create() {
-  const s = store.get();
-  const geo = deskGeometry();
+/**
+ * 窗口选项，按系统分开（单测见 test/pet-window.test.js）：
+ *   macOS    type:'panel' 能浮在全屏应用上方。注意它挡不住「点击激活本应用」（Electron 的 panel 是 NSWindow 子类，
+ *            实测见 scripts/debug/real-input.mjs），焦点由 focus-return.js 在交互结束后还回去；
+ *            acceptFirstMouse 让第一下点击直接生效（不会先被「激活窗口」吃掉）。
+ *   Windows  focusable:false 就是 WS_EX_NOACTIVATE：点她、拖她都不会把焦点从你正在用的窗口抢走，用不着 focus-return；
+ *            type:'toolbar' 是工具窗口，不进任务栏也不进 Alt+Tab；thickFrame:false 去掉系统给无边框窗口加的阴影和动画。
+ */
+function windowOptions(s, geo, platform = process.platform) {
   const { width, height } = petWindowSize(s.pet.size);
-  const w = new BrowserWindow({
+  const opts = {
     width,
     height,
     x: geo.hull.x,
@@ -242,11 +248,6 @@ function create() {
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    // panel：能浮在全屏应用上方。注意它挡不住「点击激活本应用」（Electron 的 panel 是 NSWindow 子类，
-    // 实测见 scripts/debug/real-input.mjs），焦点由 focus-return.js 在交互结束后还回去。
-    // acceptFirstMouse 让第一下点击直接生效（不会先被「激活窗口」吃掉）
-    type: 'panel',
-    acceptFirstMouse: true,
     roundedCorners: false,
     title: store.petName(),
     webPreferences: {
@@ -259,11 +260,30 @@ function create() {
       backgroundThrottling: false,
       spellcheck: false,
     },
-  });
+  };
+  if (platform === 'win32') Object.assign(opts, { type: 'toolbar', focusable: false, thickFrame: false });
+  else Object.assign(opts, { type: 'panel', acceptFirstMouse: true });
+  return opts;
+}
+
+/**
+ * 置顶层级。macOS 用 status：在程序坞和普通窗口之上，但在系统菜单（含她自己的右键菜单）之下。
+ * Windows 上 Electron 会把 floating…status 这几级摆到任务栏后面，要用 screen-saver 才在任务栏之上（和 macOS 压住程序坞一样）；
+ * 右键菜单、开始菜单这些系统弹层照样在她上面。
+ */
+function topLevel(platform = process.platform) {
+  return platform === 'win32' ? 'screen-saver' : 'status';
+}
+
+function create() {
+  const s = store.get();
+  const geo = deskGeometry();
+  const w = new BrowserWindow(windowOptions(s, geo));
   win = w; // 后续的轮询 / 事件回调都以此为准（recreate 会先记下旧窗口再调进来）
-  // 层级：在 Dock 和普通窗口之上，但在系统菜单（含她自己的右键菜单）之下
-  w.setAlwaysOnTop(true, 'status');
-  w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: s.app.overFullscreen, skipTransformProcessType: true });
+  w.setAlwaysOnTop(true, topLevel());
+  if (process.platform === 'darwin') {
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: s.app.overFullscreen, skipTransformProcessType: true });
+  }
   w.webContents.setBackgroundThrottling(false);
   w.webContents.on('context-menu', (e) => e.preventDefault());
   setIgnore(w, true);
@@ -507,14 +527,17 @@ function init(h) {
   screen.on('display-removed', pushDisplays);
 }
 
+/** 全屏应用上方要不要显示（只有 macOS：全屏应用在单独的空间里；Windows 上她一直置顶，设置页不显示这一项） */
 function setOverFullscreen(on) {
-  if (win && !win.isDestroyed()) {
+  if (process.platform === 'darwin' && win && !win.isDestroyed()) {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: !!on, skipTransformProcessType: true });
   }
 }
 
 module.exports = {
   AWAY_AFTER_SEC,
+  windowOptions,
+  topLevel,
   init,
   create: recreate,
   recreate,
