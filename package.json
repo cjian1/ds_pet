@@ -21,7 +21,7 @@
     "test:energy": "node scripts/debug/energy-probe.mjs"
   },
   "devDependencies": {
-    "electron": "43.7.7",
+    "electron": "43.8.3",
     "pe-library": "2.0.1",
     "resedit": "3.1.0"
   },
