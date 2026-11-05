@@ -1,14 +1,12 @@
 > ds_pet 基于 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT）二次创作。
 > ds_pet is a remix of [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (MIT).
 
-## 1.3.0 更新 / What's new
+## 1.3.1 更新 / What's new
 
-- 新增 Windows 版（Windows 10 / 11，x64 和 ARM 电脑都有）：安装版能一键更新，也有免安装的便携版。
-  New: ds_pet for Windows (Windows 10 / 11, for both x64 and ARM PCs). The installer version updates in one click, and there's a portable zip too.
-- 在 Windows 上点她、拖她、右键她，都不会抢走你正在用的窗口的焦点；她站在任务栏上面，Ctrl+Alt+P 随时藏起来。
-  On Windows, clicking, dragging or right-clicking her never steals focus from the window you're using; she stands on the taskbar, and Ctrl+Alt+P hides her anytime.
-- 一键更新更稳：下载中途出错（比如磁盘满了）不会再卡住，没下完的文件会清理干净。
-  Sturdier updates: a download that fails halfway (say, on a full disk) no longer gets stuck, and the partial file is cleaned up.
+- 安全更新：Electron 升级到 43.8.3，修复 eMudhra 中间证书的安全问题（GHSA-jr5w-w6x2-84p9），并带上 Chromium、V8 等上游的安全修复。
+  Security update: Electron 43.8.3 fixes the compromised eMudhra intermediate certificate issue (GHSA-jr5w-w6x2-84p9) and brings upstream security fixes for Chromium, V8 and more.
+- 这一版只有安全更新，功能和 1.3.0 一样；已经装好的 Mac 和 Windows 安装版点「一键更新」就行。
+  This release only contains security fixes and works the same as 1.3.0; installed copies on Mac and Windows (installer version) can update in one click.
 
 ## 下载哪个？ / Which file?
 
